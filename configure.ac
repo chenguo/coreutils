@@ -344,6 +344,9 @@ if test "$elf_sys" = "yes" && \
   gl_ADD_PROG([optional_pkglib_progs], [libstdbuf.so])
 fi
 
+# Check for pthreads
+AC_CHECK_LIB(pthread, pthread_create)
+
 ############################################################################
 mk="$srcdir/src/Makefile.am"
 # Extract all literal names from the definition of $(EXTRA_PROGRAMS)
