@@ -3776,7 +3776,7 @@ main (int argc, char **argv)
              scheduled evenly, with the current algorithm there is no
              performance advantage to using a number of threads that
              is not a power of 2.  */
-          unsigned long int np2 = num_processors () / 2;
+          unsigned long int np2 = num_processors (NPROC_CURRENT) / 2;
           for (nthreads = 1; nthreads <= np2; nthreads *= 2)
             continue;
         }
