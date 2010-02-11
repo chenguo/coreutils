@@ -3254,6 +3254,16 @@ main (int argc, char **argv)
   hard_LC_TIME = hard_locale (LC_TIME);
 #endif
 
+#ifdef HAVE_SYS_FALLOCATE
+  fprintf(stdout, "fallocate system call is available");
+#elif HAVE_FALLOCATE
+  fprintf(stdout, "fallocate() is available");
+#elif HAVE_POSIX_FALLOCATE
+  fprintf(stdout, "posix_fallocate() is available");
+#else
+  fprintf(stdout, "No preallocation support is available");
+#endif
+
   /* Get locale's representation of the decimal point.  */
   {
     struct lconv const *locale = localeconv ();
