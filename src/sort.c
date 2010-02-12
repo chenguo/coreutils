@@ -49,6 +49,13 @@
 #include "xnanosleep.h"
 #include "xstrtol.h"
 
+#if HAVE_SYS_FALLOCATE
+#include <sys/syscall.h>
+#include <linux/fs.h> // for FA_ALLOCATE
+#elif HAVE_FALLOCATE
+#include <linux/fs.h> // for FA_ALLOCATE
+#endif
+
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
 #endif
@@ -66,6 +73,14 @@ struct rlimit { size_t rlim_cur; };
 
 #if HAVE_LANGINFO_CODESET
 # include <langinfo.h>
+#endif
+
+#if HAVE_SYS_FALLOCATE
+#define HAVE_PREALLOCATION_SUPPORT 1
+#elif HAVE_FALLOCATE
+#define HAVE_PREALLOCATION_SUPPORT 1
+#elif HAVE_POSIX_FALLOCATE
+#define HAVE_PREALLOCATION_SUPPORT 1
 #endif
 
 /* Use SA_NOCLDSTOP as a proxy for whether the sigaction machinery is
@@ -751,6 +766,27 @@ exit_cleanup (void)
 
   close_stdout ();
 }
+
+#if HAVE_PREALLOCATION_SUPPORT
+/* Preallocate the file given by fd with the size filesize.
+   In order of preference, this function will use, based on availability,
+     SYS_fallocate
+     fallocate
+     posix_fallocate   
+   Returns 0 on success or -1 on failure  */
+static int preallocate_file(int fd, loff_t filesize)
+{
+  // On some systems, fallocate returns a long, and on some it returns
+  // an int.
+#if HAVE_SYS_FALLOCATE
+  return (int)syscall(SYS_fallocate, fd, FA_ALLOCATE, (loff_t)0, filesize);
+#elif HAVE_FALLOCATE
+  return (int)fallocate(fd, FA_ALLOCATE, (loff_t)0, filesize);
+#elif HAVE_POSIX_FALLOCATE
+  return posix_fallocate(fd, (off_t)0, (off_t)filesize);
+#endif
+}
+#endif
 
 /* Create a new temporary file, returning its newly allocated tempnode.
    Store into *PFD the file descriptor open for writing.
