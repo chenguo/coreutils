@@ -157,8 +157,9 @@ parameter of any heap function.
 struct heap
 {
 	size_t *heapArray;
-	sizt_t heapSize;
-	int (*compare) (void* a) (void* b);
+	size_t heapSize;
+	size_t nitems;
+	int (*compare) (const void*, const void*);
 };
 
 /* Equivalent to a constructor
@@ -168,31 +169,31 @@ struct heap
 		size - the size of the heap to be initialized
 	This will dynamically allocate size space for the heap
 */
-void
-heap_init(heap* aHeap, int (*compareFunc), size_t size)
+void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const void* a, const void* b))
 {
 	if(aHeap)
 	{
-		aHeap.heapSize = size;
-		aHeap.compare = compareFunc;
-		aHeap.heapArray = xnmalloc(nfiles, sizeof *heapArray);
+		aHeap->nitems = 0;
+		aHeap->heapSize = size;
+		aHeap->compare = compareFunc;
+		aHeap->heapArray = malloc(size * (sizeof *(aHeap->heapArray)));
 	}
 }
 
-void
-heap_push(heap* aHeap, void* item)
+size_t
+heap_push(struct heap* aHeap, void* item)
 {
 	return 0;
 }
 
 size_t
-heap_pop(heap* aHeap)
+heap_pop(struct heap* aHeap)
 {
 	return 0;
 }
 
 void
-heap_heapify(heap* aHeap)
+heap_heapify(struct heap* aHeap)
 {
 	return;
 }
@@ -205,11 +206,11 @@ heap_heapify(heap* aHeap)
 	Note: Does NOT free the heap object itself! If you want it to do that, uncomment the line of code below...
 */
 void
-heap_free(heap* aHeap)
+heap_free(struct heap* aHeap)
 {
 	if(aHeap)
 	{
-		free(aHeap.heapArray);
+		free(aHeap->heapArray);
 		// free(aHeap);		//Frees the heap object itself
 	}
 }
