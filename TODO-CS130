@@ -1,0 +1,27 @@
+sort ():
+  Modify bytes_per_line to be (log P + 1) * sizeof (struct line)
+  Modify call to sortlines () (added arguments mostly)
+  Remove writing to output (refactoring to top level merge)
+
+sortlines ():
+  Rename arguments: lines -> source, temp -> dest.
+  Add total_lines, pointer to parent struct, pointer to end in parent struct.
+    (GENE: correct this if this is wrong, I know you have this written down)
+  Construct work_unit struct for node.
+  Modify arguments struct for pthread create, for new sortlines arguments.
+  Modify recursive call to sortlines for new arguments.
+
+  Remove call to mergelines.
+  Add infinite job-doing loop
+
+mergelines ():
+  Modify arguments as needed... should now be something like: src1, n1, src2,
+    n2, dest.
+
+sortlines_thread ():
+  Modify to satisfy new arguments.
+
+Priority Queue:
+  Be able to link to it first, I guess.
+  Define compare function.
+
