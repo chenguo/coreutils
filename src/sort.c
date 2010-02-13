@@ -149,9 +149,9 @@ static char eolchar = '\n';
 /* XXX New struct for Heap!!! - Noah
 
 Notes to Kalvin:
-Since we are doing this in C, there aren't technically and "objects", so we kinda have to
-abstract them. This is done by passing int he structure as the first parameter to any function 
-we want to use on it.
+Since we are doing this in C, there aren't technically any "objects", so we kinda have to
+abstract them. This is done by passing in pointers to the "object" structure as the first
+parameter of any heap function.
 
 */
 struct heap
