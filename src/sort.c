@@ -146,6 +146,76 @@ enum blanktype { bl_start, bl_end, bl_both };
 /* The character marking end of line. Default to \n. */
 static char eolchar = '\n';
 
+/* XXX New struct for Heap!!! - Noah
+
+Notes to Kalvin:
+Since we are doing this in C, there aren't technically and "objects", so we kinda have to
+abstract them. This is done by passing int he structure as the first parameter to any function 
+we want to use on it.
+
+*/
+struct heap
+{
+	size_t *heapArray;
+	sizt_t heapSize;
+	int (*compare) (void* a) (void* b);
+};
+
+/* Equivalent to a constructor
+	Input parameters:
+		aHeap - a pointer to the heap object
+		compareFunc - pointer to the compare function desired
+		size - the size of the heap to be initialized
+	This will dynamically allocate size space for the heap
+*/
+void
+heap_init(heap* aHeap, int (*compareFunc), size_t size)
+{
+	if(aHeap)
+	{
+		aHeap.heapSize = size;
+		aHeap.compare = compareFunc;
+		aHeap.heapArray = xnmalloc(nfiles, sizeof *heapArray);
+	}
+}
+
+void
+heap_push(heap* aHeap, void* item)
+{
+	return 0;
+}
+
+size_t
+heap_pop(heap* aHeap)
+{
+	return 0;
+}
+
+void
+heap_heapify(heap* aHeap)
+{
+	return;
+}
+
+/*
+	Equivalent to a destructor
+	Input:
+		aHeap - pointer to the heap object
+	Frees up any dynamically allocated memory within the heap
+	Note: Does NOT free the heap object itself! If you want it to do that, uncomment the line of code below...
+*/
+void
+heap_free(heap* aHeap)
+{
+	if(aHeap)
+	{
+		free(aHeap.heapArray);
+		// free(aHeap);		//Frees the heap object itself
+	}
+}
+
+// XXX End of new heap struct!!
+
 /* Lines are held in core as counted strings. */
 struct line
 {
