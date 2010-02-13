@@ -202,6 +202,22 @@ struct month
   int val;
 };
 
+/* Work to be done at one level in the merge tree. */
+struct work_unit
+{
+  struct line *src_lo;          /* Available lines merged from LO. */
+  struct line *src_hi;          /* Available lines merged from HI. */
+  struct line *end_lo;          /* End of available lines from LO. */
+  struct line *end_hi;          /* End of available lines from HI. */
+  struct line *dest;            /* Destination of merge. */
+  struct line **parent_end;     /* Pointer to END_LO or END_HI in parent,
+                                   dependent on if this work unit is merging
+                                   parent's LO or HI. */
+  size_t nlines;                /* Lines left to merge. */
+  size_t level;                 /* Level in merge tree. Top level is 0. */
+  struct work_unit *parent;     /* Pointer to parent work unit. */
+};
+
 /* FIXME: None of these tables work with multibyte character sets.
    Also, there are many other bugs when handling multibyte characters.
    One way to fix this is to rewrite `sort' to use wide characters
