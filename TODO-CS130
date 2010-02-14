@@ -8,16 +8,15 @@ sortlines ():
   Add total_lines, pointer to parent struct, pointer to end in parent struct.
     (GENE: correct this if this is wrong, I know you have this written down)
     (DONE: Chen. ** More arguments may need to be added **)
-  Construct work_unit struct for node.
-  Modify arguments struct for pthread create, for new sortlines arguments.
-  Modify recursive call to sortlines for new arguments.
-
-  Remove call to mergelines.
+  Construct work_unit struct for node. (DONE: Chen)
+  Modify arguments struct for pthread create, for new sortlines arguments. (DONE: Chen)
+  Modify recursive call to sortlines for new arguments. (DONE: Chen)
+  Remove call to mergelines. (DONE: Chen)
+  Handle transition from multithreaded to singlethreaded case (DONE: Chen)
   Add infinite job-doing loop
 
-mergelines ():
-  Modify arguments as needed... should now be something like: src1, n1, src2,
-    n2, dest.
+New merge function:
+  Take as arguments src1, src2, n1, n2, dest.
 
 sortlines_thread ():
   Modify to satisfy new arguments. (DONE: Chen)
@@ -26,3 +25,5 @@ Priority Queue:
   Be able to link to it first, I guess.
   Define compare function.
 
+mergesort ():
+  New function using old code, handles single threaded sorting. (DONE: Chen)

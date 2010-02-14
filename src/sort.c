@@ -216,7 +216,7 @@ struct work_unit
   size_t nlines;                /* Lines left to merge. */
   size_t level;                 /* Level in merge tree. Top level is 0. */
   struct work_unit *parent;     /* Pointer to parent work unit. */
-  /* Some spinlock item. */
+  pthread_spinlock_t lock;      /* Some spinlock item. */
 };
 
 /* FIXME: None of these tables work with multibyte character sets.
@@ -2633,6 +2633,70 @@ mergelines (struct line *restrict t, size_t nlines,
       }
 }
 
+/* Sort the array LINES with NLINES members, using TEMP for temporary space.
+   NLINES must be at least 2.
+   The input and output arrays are in reverse order, and LINES and
+   TEMP point just past the end of their respective arrays.
+
+   Use a recursive divide-and-conquer algorithm, in the style
+   suggested by Knuth volume 3 (2nd edition), exercise 5.2.4-23.  Use
+   the optimization suggested by exercise 5.2.4-10; this requires room
+   for only 1.5*N lines, rather than the usual 2*N lines.  Knuth
+   writes that this memory optimization was originally published by
+   D. A. Bell, Comp J. 1 (1958), 75.  */
+
+static void
+mergesort (struct line *restrict lines, size_t nlines,
+           struct line *restrict temp, bool to_temp)
+{
+  if (nlines == 2)
+    {
+      /* Declare `swap' as int, not bool, to work around a bug
+	 <http://lists.gnu.org/archive/html/bug-coreutils/2005-10/msg00086.html>
+	 in the IBM xlc 6.0.0.0 compiler in 64-bit mode.  */
+      int swap = (0 < compare (&lines[-1], &lines[-2]));
+      int swap = (0 < compare (&lines[-1], &lines[-2]));
+      if (to_temp)
+        {
+          temp[-1] = lines[-1 - swap];
+          temp[-2] = lines[-2 + swap];
+        }
+      else if (swap)
+        {
+          temp[-1] = lines[-1];
+          lines[-1] = lines[-2];
+          lines[-2] = temp[-1];
+        }
+    }
+  else
+    {
+      size_t nlo = nlines / 2;
+      size_t nhi = nlines - nlo;
+      struct line *lo = lines;
+      struct line *hi = lines - nlo;
+
+      sortlines (hi, nhi, temp - (to_temp ? nlo : 0), 1, to_temp);
+      if (1 < nlo)
+        sortlines (lo, nlo, temp, 1, !to_temp);
+      else if (!to_temp)
+        temp[-1] = lo[-1];
+
+      struct line *dest;
+      struct line const *sorted_lo;
+      if (to_temp)
+        {
+          dest = temp;
+          sorted_lo = lines;
+        }
+      else
+        {
+          dest = lines;
+          sorted_lo = temp;
+        }
+      mergelines (dest, nlines, sorted_lo);
+    }
+}
+
 static void sortlines (struct line *restrict, size_t, struct line *restrict,
                        unsigned long int, size_t, struct work_unit *restrict,
                        struct line **restrict);
@@ -2659,26 +2723,6 @@ sortlines_thread (void *data)
   return NULL;
 }
 
-/* Sort the array LINES with NLINES members, using TEMP for temporary space,
-   spawning NTHREADS threads.  NLINES must be at least 2.
-   The input and output arrays are in reverse order, and LINES and
-   TEMP point just past the end of their respective arrays.
-
-   If TO_TEMP, place the result in TEMP (trashing LINES in the
-   process); otherwise, place the result back into LINES so that it is
-   an in-place sort (trashing TEMP in the process).
-
-   Use a recursive divide-and-conquer algorithm, in the style
-   suggested by Knuth volume 3 (2nd edition), exercise 5.2.4-23.  If
-   multithreaded, this requires that TEMP contain NLINES entries; if
-   singlethreaded, use the optimization suggested by Knuth exercise
-   5.2.4-10, which requires room for only 1.5*N lines, rather than the
-   usual 2*N lines.  Knuth writes that this memory optimization was
-   originally published by D. A. Bell, Comp J. 1 (1958), 75.
-
-   This function is inline so that its tests for multthreadedness and
-   inplacedness can be optimized away in common cases.  */
- 
 static void
 sortlines (struct line *restrict lines, size_t nlines,
            struct line *restrict dest,
@@ -2704,59 +2748,48 @@ sortlines (struct line *restrict lines, size_t nlines,
     }
   else
     {
+      /* Create work unit. */
       size_t nlo = nlines / 2;
       size_t nhi = nlines - nlo;
-      struct line *lo = lines;
-      struct line *hi = lines - nlo;
+      struct line *lo = dest - total_lines;
+      struct line *hi = lo - nlo;
+      pthread_spinlock_t lock;
+      pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
+      struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlines,
+                               parent->level + 1, lock}; 
+
+      /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
       unsigned long int my_subthreads = nthreads - child_subthreads;
       pthread_t thread;
+      struct thread_args args = {lines - nlo, nhi, hi, child_subthreads,
+                                 total_lines, &work, &work.end_hi};
 
-      /* TODO:
-           1. Create work_unit struct for current node.
-           2. Modify thread_args below to reflect new signature.
-
-      struct thread_args args = {hi, nhi, temp - nlo, child_subthreads,
-                                 to_temp}; */
-
-      if (child_subthreads != 0 && SUBTHREAD_LINES_HEURISTIC <= nlines
+      if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
           && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
         {
           /* Guarantee that nlo and nhi are each at least 2.  */
           verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-          /* TODO: modify recursive call for new arguments.
-          sortlines (lo, nlo, temp, my_subthreads, !to_temp; */
+          sortlines (lines, nlo, lo, my_subthreads, total_lines, &work,
+                     &work.end_lo);
           pthread_join (thread, NULL);
         }
       else
         {
-          /* Modify calls.
-          sortlines (hi, nhi, temp - (to_temp ? nlo : 0), 1, to_temp);
+          /* Nthreads = 1, this is a leaf node. Call mergesort. */
+          mergesort (lines - nlo, nhi, hi, true);
           if (1 < nlo)
-            sortlines (lo, nlo, temp, 1, !to_temp);
-          else if (!to_temp)
-            temp[-1] = lo[-1]; */
-        }
+            mergesort (lines, nlo, lo, true);
+          else
+            lo[-1] = lines[-1];
 
+          /* Update work unit. No need to lock, merge process hasn't begun. */
+          work.end_lo = lo - nlo;
+          work.end_hi = hi - nhi;
 
-      /* TODO: refactor call to mergelines to level > log (NTHREADS) case.
-           Could do this cleverly... Maybe at NTHREADS = 1, pass NTHREADS = 0
-           to children to signify they should merge.
-      struct line *dest;
-      struct line const *sorted_lo;
-      if (to_temp)
-        {
-          dest = temp;
-          sorted_lo = lines;
+          /* TODO: push work unit. */
         }
-      else
-        {
-          dest = lines;
-          sorted_lo = temp;
-        }
-      mergelines (dest, nlines, sorted_lo); */
-
 
       /* TODO: if NTHREADS = 1, do job loop. */
       if (nthreads == 1)
