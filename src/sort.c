@@ -145,6 +145,16 @@ enum blanktype { bl_start, bl_end, bl_both };
 /* The character marking end of line. Default to \n. */
 static char eolchar = '\n';
 
+
+/* Lines are held in core as counted strings. */
+struct line
+{
+  char *text;			/* Text of the line. */
+  size_t length;		/* Length including final newline. */
+  char *keybeg;			/* Start of first key. */
+  char *keylim;			/* Limit of first key. */
+};
+
 /* XXX New struct for Heap!!! - Noah
 
 Notes to Kalvin:
@@ -158,7 +168,7 @@ struct heap
 	size_t *heapArray;
 	size_t heapSize;
 	size_t nitems;
-	int (*compare) (const void*, const void*);
+	int (*compare) (const struct line*, const struct line*);
 };
 
 /* Equivalent to a constructor
@@ -168,7 +178,7 @@ struct heap
 		size - the size of the heap to be initialized
 	This will dynamically allocate size space for the heap
 */
-void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const void* a, const void* b))
+void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const struct line* a, const struct line* b))
 {
 	if(aHeap)
 	{
@@ -187,7 +197,7 @@ heap_heapify(struct heap* aHeap)
 }
 */
 size_t
-heap_push(struct heap* aHeap, void* item)
+heap_push(struct heap* aHeap, const struct line* item)
 {
 	/*error checking.  Uncomment if needed as branches take compute time
 	if(aHeap->nitems == aHeap->heapSize)
@@ -199,7 +209,7 @@ heap_push(struct heap* aHeap, void* item)
 	
 	while(loc!=0)
 	{
-		if(aHeap->compare((void*)aHeap->heapArray[loc/2], item) < 0)
+		if(aHeap->compare((struct line*)aHeap->heapArray[loc/2], item) < 0)
 			break;
 		aHeap->heapArray[loc]=aHeap->heapArray[loc/2];
 		aHeap->heapArray[loc/2]=(size_t)item;
@@ -259,14 +269,6 @@ heap_free(struct heap* aHeap)
 
 // XXX End of new heap struct!!
 
-/* Lines are held in core as counted strings. */
-struct line
-{
-  char *text;			/* Text of the line. */
-  size_t length;		/* Length including final newline. */
-  char *keybeg;			/* Start of first key. */
-  char *keylim;			/* Limit of first key. */
-};
 
 /* Input buffers. */
 struct buffer
@@ -2534,12 +2536,27 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   /* Set up the ord table according to comparisons among input lines.
      Since this only reorders two items if one is strictly greater than
      the other, it is stable. */
+
+	struct heap fileSort;
+	heap_init(&fileSort, nfiles, compare);
+	for (i = 0; i < nfiles; ++i)
+		heap_push(&fileSort, cur[i]);
+  for (i = 0; i < nfiles; ++i)
+		if((struct line*)fileSort.heapArray[0] == cur[i])
+		{
+			ord[0]=i;
+			break;
+		}
+
+
+
+/*
   for (i = 0; i < nfiles; ++i)
     ord[i] = i;
   for (i = 1; i < nfiles; ++i)
     if (0 < compare (cur[ord[i - 1]], cur[ord[i]]))
       t = ord[i - 1], ord[i - 1] = ord[i], ord[i] = t, i = 0;
-
+*/
   /* Repeatedly output the smallest line until no input remains. */
   while (nfiles)
     {
@@ -2597,9 +2614,9 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           else
             {
               /* We reached EOF on fps[ord[0]].  */
-              for (i = 1; i < nfiles; ++i)
+  /*            for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
-                  --ord[i];
+                  --ord[i];*/
               --nfiles;
               xfclose (fps[ord[0]], files[ord[0]].name);
               if (ord[0] < ntemps)
@@ -2616,8 +2633,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
                   cur[i] = cur[i + 1];
                   base[i] = base[i + 1];
                 }
-              for (i = 0; i < nfiles; ++i)
-                ord[i] = ord[i + 1];
+              /*for (i = 0; i < nfiles; ++i)
+                ord[i] = ord[i + 1];*/
               continue;
             }
         }
