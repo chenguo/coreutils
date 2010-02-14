@@ -179,24 +179,39 @@ void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const void* a
 		aHeap->heapArray = malloc(size * (sizeof *(aHeap->heapArray)));
 	}
 }
+void
+heap_heapify(struct heap* aHeap)
+{
+	return;
+}
 
 size_t
 heap_push(struct heap* aHeap, void* item)
 {
+	/*error checking.  Uncomment if needed as branches take compute time
+	if(aHeap->nitems == aHeap->heapSize)
+		return -1;
+	*/
+	aHeap->heapArray[(aHeap->nitems)]=(size_t)item;
+	aHeap->nitems=aHeap->nitems+1;
+	heap_heapify(aHeap);
 	return 0;
 }
 
 size_t
 heap_pop(struct heap* aHeap)
 {
-	return 0;
+	/*error checking.  Uncomment if needed as branches take compute time*
+	if(aHeap->nitems == 0)
+		return -1;
+	*/
+	size_t temp=aHeap->heapArray[0];
+	aHeap->heapArray[0]=aHeap->heapArray[aHeap->nitems-1];
+	aHeap->nitems=aHeap->nitems-1;
+	heap_heapify(aHeap);
+	return temp;
 }
 
-void
-heap_heapify(struct heap* aHeap)
-{
-	return;
-}
 
 /*
 	Equivalent to a destructor
