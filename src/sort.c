@@ -21,7 +21,6 @@
    Ørn E. Hansen added NLS support in 1997.  */
 
 #include <config.h>
-
 #include <getopt.h>
 #include <pthread.h>
 #include <sys/types.h>
@@ -179,12 +178,14 @@ void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const void* a
 		aHeap->heapArray = malloc(size * (sizeof *(aHeap->heapArray)));
 	}
 }
+
+/*do we need a heapify function?
 void
 heap_heapify(struct heap* aHeap)
 {
 	return;
 }
-
+*/
 size_t
 heap_push(struct heap* aHeap, void* item)
 {
@@ -192,9 +193,18 @@ heap_push(struct heap* aHeap, void* item)
 	if(aHeap->nitems == aHeap->heapSize)
 		return -1;
 	*/
-	aHeap->heapArray[(aHeap->nitems)]=(size_t)item;
-	aHeap->nitems=aHeap->nitems+1;
-	heap_heapify(aHeap);
+	int loc=aHeap->nitems;
+	aHeap->heapArray[loc]=(size_t)item;
+	aHeap->nitems=loc+1;
+	
+	while(loc!=0)
+	{
+		if(aHeap->compare((void*)aHeap->heapArray[loc/2], item) < 0)
+			break;
+		aHeap->heapArray[loc]=aHeap->heapArray[loc/2];
+		aHeap->heapArray[loc/2]=(size_t)item;
+		loc=loc/2;
+	}
 	return 0;
 }
 
@@ -205,10 +215,27 @@ heap_pop(struct heap* aHeap)
 	if(aHeap->nitems == 0)
 		return -1;
 	*/
+	int loc=0;
 	size_t temp=aHeap->heapArray[0];
 	aHeap->heapArray[0]=aHeap->heapArray[aHeap->nitems-1];
 	aHeap->nitems=aHeap->nitems-1;
-	heap_heapify(aHeap);
+	int tloc=loc*2;
+	size_t temp2;
+	while((loc*2)<aHeap->nitems)
+	{
+		temp2 = aHeap->heapArray[loc];		
+		if((loc*2)+1 < aHeap->nitems && (aHeap->compare((void*)aHeap->heapArray[loc*2], (void*)aHeap->heapArray[loc*2+1]) > 0))
+			tloc=loc*2+1;
+		if(aHeap->compare((void*)aHeap->heapArray[loc], (void*)aHeap->heapArray[tloc]) < 0)
+		{
+			aHeap->heapArray[loc]=aHeap->heapArray[tloc];
+			aHeap->heapArray[tloc]=temp2;
+			loc=tloc;
+		}
+		else
+			break;
+		
+	}
 	return temp;
 }
 
