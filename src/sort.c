@@ -2633,16 +2633,19 @@ mergelines (struct line *restrict t, size_t nlines,
 }
 
 static void sortlines (struct line *restrict, size_t, struct line *restrict,
-                       unsigned long int, bool);
+                       unsigned long int, size_t, struct work_unit *restrict,
+                       struct line **restrict);
  
 /* Thread arguments for sortlines_thread. */
 struct thread_args
 {
   struct line *lines;
   size_t nlines;
-  struct line *temp;
+  struct line *dest;
   unsigned long int nthreads;
-  bool to_temp;
+  size_t total_lines;
+  struct work_unit *parent;
+  struct line **parent_end;
 };
 
 /* Like sortlines, except with a signature acceptable to pthread_create.  */
@@ -2650,8 +2653,8 @@ static void *
 sortlines_thread (void *data)
 {
   struct thread_args const *args = data;
-  sortlines (args->lines, args->nlines, args->temp, args->nthreads,
-             args->to_temp);
+  sortlines (args->lines, args->nlines, args->dest, args->nthreads,
+             args->total_lines, args->parent, args->parent_end);
   return NULL;
 }
 
@@ -2677,11 +2680,14 @@ sortlines_thread (void *data)
  
 static void
 sortlines (struct line *restrict lines, size_t nlines,
-           struct line *restrict temp,
-           unsigned long int nthreads, bool to_temp)
+           struct line *restrict dest,
+           unsigned long int nthreads, size_t total_lines,
+           struct work_unit *restrict parent,
+           struct line **restrict parent_end)
 {
   if (nlines == 2)
     {
+      /* Modify, we no longer use temp/to_temp.
       int swap = (0 < compare (&lines[-1], &lines[-2]));
       if (to_temp)
         {
@@ -2693,7 +2699,7 @@ sortlines (struct line *restrict lines, size_t nlines,
           temp[-1] = lines[-1];
           lines[-1] = lines[-2];
           lines[-2] = temp[-1];
-        }
+        } */
     }
   else
     {
@@ -2704,8 +2710,13 @@ sortlines (struct line *restrict lines, size_t nlines,
       unsigned long int child_subthreads = nthreads / 2;
       unsigned long int my_subthreads = nthreads - child_subthreads;
       pthread_t thread;
+
+      /* TODO:
+           1. Create work_unit struct for current node.
+           2. Modify thread_args below to reflect new signature.
+
       struct thread_args args = {hi, nhi, temp - nlo, child_subthreads,
-                                 to_temp};
+                                 to_temp}; */
 
       if (child_subthreads != 0 && SUBTHREAD_LINES_HEURISTIC <= nlines
           && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
@@ -2713,18 +2724,24 @@ sortlines (struct line *restrict lines, size_t nlines,
           /* Guarantee that nlo and nhi are each at least 2.  */
           verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-          sortlines (lo, nlo, temp, my_subthreads, !to_temp);
+          /* TODO: modify recursive call for new arguments.
+          sortlines (lo, nlo, temp, my_subthreads, !to_temp; */
           pthread_join (thread, NULL);
         }
       else
         {
+          /* Modify calls.
           sortlines (hi, nhi, temp - (to_temp ? nlo : 0), 1, to_temp);
           if (1 < nlo)
             sortlines (lo, nlo, temp, 1, !to_temp);
           else if (!to_temp)
-            temp[-1] = lo[-1];
+            temp[-1] = lo[-1]; */
         }
 
+
+      /* TODO: refactor call to mergelines to level > log (NTHREADS) case.
+           Could do this cleverly... Maybe at NTHREADS = 1, pass NTHREADS = 0
+           to children to signify they should merge.
       struct line *dest;
       struct line const *sorted_lo;
       if (to_temp)
@@ -2737,7 +2754,23 @@ sortlines (struct line *restrict lines, size_t nlines,
           dest = lines;
           sorted_lo = temp;
         }
-      mergelines (dest, nlines, sorted_lo);
+      mergelines (dest, nlines, sorted_lo); */
+
+
+      /* TODO: if NTHREADS = 1, do job loop. */
+      if (nthreads == 1)
+        while (1)
+          {
+            /* Loop:
+                 1. Pop top work unit.
+                 2. Extract necessary memebers.
+                 3. Call mergelines.
+                 4. Update work unit.
+                 5. Update parent work unit.
+                 6. If parent has work, push parent.
+                    If parent is top level, and finished, push EOF.
+             */
+          }
     }
 }
 
@@ -2961,6 +2994,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
       /* If singlethreaded, the merge uses the memory optimization
          suggested in Knuth exercise 5.2.4-10; see sortlines.  */
+      /* TODO: Update to [log (P) + 1] * sizeof (struct line) */
       size_t bytes_per_line = (2 * sizeof (struct line)
                                - (1 < nthreads ? 0 : sizeof (struct line) / 2));
 
@@ -2990,7 +3024,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
-            sortlines (line, buf.nlines, linebase, nthreads, false);
+            sortlines (line, buf.nlines, linebase, nthreads, nlines, NULL, NULL);
           if (buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
@@ -3004,6 +3038,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               temp_output = create_temp (&tfp, NULL);
             }
 
+          /* TODO: refactor output to top level merge. */
           do
             {
               line--;
