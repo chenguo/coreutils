@@ -164,30 +164,19 @@ parameter of any heap function.
 
 */
 
+struct tuple
+{
+	size_t first;   //the line
+	size_t second;  //the file #
+};
 struct heap
 {
 	size_t *heapArray;
 	size_t heapSize;
 	size_t nitems;
-	int (*compare) (const void*, const void*);
+	int (*compare) (const struct tuple*, const struct tuple*);
 };
 
-struct tuple
-{
-	size_t first;
-	size_t second;
-};
-
-/* Compare two tuples, using the first item in each tuple. */
-
-static int
-tuple_compare (const struct tuple *a, const struct tuple *b)
-{
-	if(a && b)
-		return compare(a->first, b->first);
-	else
-		return 0;
-}
 
 /* Equivalent to a constructor
 	Input parameters:
@@ -197,7 +186,7 @@ tuple_compare (const struct tuple *a, const struct tuple *b)
 	This will dynamically allocate size space for the heap
 */
 void
-heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const void*, const void*))
+heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const struct tuple*, const struct tuple*))
 {
 	if(aHeap)
 	{
@@ -219,18 +208,24 @@ heap_heapify(struct heap* aHeap)
 size_t
 heap_push(struct heap* aHeap, const void* item)
 {
-	/*error checking.  Uncomment if needed as branches take compute time
+	/*error checking.  Uncomment if needed as branches take compute time*/
 	if(aHeap->nitems == aHeap->heapSize)
+	{
 		return -1;
-	*/
+	}
+
+	
 	int loc=aHeap->nitems;
+	//insert new item
 	aHeap->heapArray[loc]=(size_t)item;
 	aHeap->nitems=loc+1;
 	
 	while(loc!=0)
 	{
-		if(aHeap->compare((struct line*)aHeap->heapArray[loc/2], item) < 0)
+		//is new item smaller than parent?
+		if(aHeap->compare((struct tuple*)aHeap->heapArray[loc/2], item) < 0)
 			break;
+		//swap with parent
 		aHeap->heapArray[loc]=aHeap->heapArray[loc/2];
 		aHeap->heapArray[loc/2]=(size_t)item;
 		loc=loc/2;
@@ -241,26 +236,36 @@ heap_push(struct heap* aHeap, const void* item)
 size_t
 heap_pop(struct heap* aHeap)
 {
-	/*error checking.  Uncomment if needed as branches take compute time*
+//	error checking.  Uncomment if needed as branches take compute time*
 	if(aHeap->nitems == 0)
+	{
 		return -1;
-	*/
+	}
+	
 	int loc=0;
+	//store the root that will be popped
 	size_t temp=aHeap->heapArray[0];
-	aHeap->heapArray[0]=aHeap->heapArray[aHeap->nitems-1];
+	//decrement item #
 	aHeap->nitems=aHeap->nitems-1;
+	//take last item and place as new root
+	aHeap->heapArray[0]=aHeap->heapArray[aHeap->nitems];
 	int tloc=loc*2;
 	size_t temp2;
-	while((loc*2)<aHeap->nitems)
+	//fixing heap
+	while((tloc)<aHeap->nitems)
 	{
 		temp2 = aHeap->heapArray[loc];		
+		//find smaller of two children
 		if((loc*2)+1 < aHeap->nitems && (aHeap->compare((void*)aHeap->heapArray[loc*2], (void*)aHeap->heapArray[loc*2+1]) > 0))
 			tloc=loc*2+1;
-		if(aHeap->compare((void*)aHeap->heapArray[loc], (void*)aHeap->heapArray[tloc]) < 0)
+		//is child smaller than parent?
+		if(aHeap->compare((void*)aHeap->heapArray[loc], (void*)aHeap->heapArray[tloc]) > 0)
 		{
+			//swapping child with parent
 			aHeap->heapArray[loc]=aHeap->heapArray[tloc];
 			aHeap->heapArray[tloc]=temp2;
 			loc=tloc;
+			tloc=loc*2;
 		}
 		else
 			break;
@@ -269,14 +274,14 @@ heap_pop(struct heap* aHeap)
 	return temp;
 }
 
-void*
-heap_peek(const struct heap* aHeap)
+size_t
+heap_peek(struct heap* aHeap)
 {
 	if(aHeap && aHeap->heapArray)
 	{
-		return &(aHeap->heapArray[0]);
+		return (size_t)(aHeap->heapArray[0]);
 	}
-	return NULL;
+	return -1;
 }
 
 
@@ -293,7 +298,7 @@ heap_free(struct heap* aHeap)
 	if(aHeap)
 	{
 		free(aHeap->heapArray);
-		// free(aHeap);		//Frees the heap object itself
+		 free(aHeap);		//Frees the heap object itself
 	}
 }
 
@@ -2388,6 +2393,17 @@ compare (const struct line *a, const struct line *b)
   return reverse ? -diff : diff;
 }
 
+/* Compare two tuples, using the first item in each tuple. */
+
+static int
+tuple_compare (const struct tuple *a, const struct tuple *b)
+{
+	if(a && b)
+		return compare((const struct line*)a->first,(const struct line*) b->first);
+	else
+		return 0;
+}
+
 /* Check that the lines read from FILE_NAME come in order.  Return
    true if they are in order.  If CHECKONLY == 'c', also print a
    diagnostic (FILE_NAME, line number, contents of line) to stderr if
@@ -2576,15 +2592,14 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	heap_init(&fileSort, nfiles, tuple_compare);
 	for (i = 0; i < nfiles; ++i)
 	{
-		tuple *t = malloc(sizeof(tuple));
-		t->first = cur[i];
+		struct tuple *t = malloc(sizeof(struct tuple));
+		t->first = (size_t)cur[i];
 		t->second = i;
 		heap_push(&fileSort, &t);
 	}
-	ord[0] = ((struct tuple*)heap_peek(fileSort))->second;
+	ord[0] = ((struct tuple*)heap_peek(&fileSort))->second;
 	
-	/*
-	for (i = 0; i < nfiles; ++i)
+/*	for (i = 0; i < nfiles; ++i)
 	{
 		if((struct line*)fileSort.heapArray[0] == cur[i])
 		{
@@ -2592,12 +2607,12 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 			break;
 		}
 	}
-	*/
+*/	
 	
 /*
-  for (i = 0; i < nfiles; ++i)
-    ord[i] = i;
   for (i = 1; i < nfiles; ++i)
+    ord[i] = i;
+  for (i = 2; i < nfiles; ++i)
     if (0 < compare (cur[ord[i - 1]], cur[ord[i]]))
       t = ord[i - 1], ord[i - 1] = ord[i], ord[i] = t, i = 0;
 */
@@ -2658,9 +2673,12 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           else
             {
               /* We reached EOF on fps[ord[0]].  */
-  /*            for (i = 1; i < nfiles; ++i)
+  /*           for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
                   --ord[i];*/
+	     for(i=1; i<fileSort.nitems; ++i)
+		if(((struct tuple*)fileSort.heapArray[i])->second > ord[0])
+	          --(((struct tuple*)fileSort.heapArray[i])->second);
               --nfiles;
               xfclose (fps[ord[0]], files[ord[0]].name);
               if (ord[0] < ntemps)
@@ -2677,7 +2695,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
                   cur[i] = cur[i + 1];
                   base[i] = base[i + 1];
                 }
-              /*for (i = 0; i < nfiles; ++i)
+             /* for (i = 0; i < nfiles; ++i)
                 ord[i] = ord[i + 1];*/
               continue;
             }
@@ -2688,7 +2706,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
          encounter a line larger than it.  Optimize for the common
          case where the new line is smallest.  */
       {
-        size_t lo = 1;
+       /* size_t lo = 1;
         size_t hi = nfiles;
         size_t probe = lo;
         size_t ord0 = ord[0];
@@ -2707,7 +2725,16 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
         count_of_smaller_lines = lo - 1;
         for (j = 0; j < count_of_smaller_lines; j++)
           ord[j] = ord[j + 1];
-        ord[count_of_smaller_lines] = ord0;
+        ord[count_of_smaller_lines] = ord0;*/
+		ord[0]=((struct tuple*)heap_pop(&fileSort))->second;
+//		if(base[ord[0]] < cur[ord[0]])
+		{
+			struct tuple* temp=malloc(sizeof(struct tuple));
+			temp->first=(size_t)cur[ord[0]];
+			temp->second=ord[0];	
+			heap_push(&fileSort, temp);
+		}
+
       }
 
       /* Free up some resources every once in a while.  */
@@ -2727,6 +2754,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   free(ord);
   free(base);
   free(cur);
+  heap_free(&fileSort);
 }
 
 /* Merge lines from FILES onto OFP.  NTEMPS is the number of temporary
