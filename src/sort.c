@@ -774,7 +774,8 @@ exit_cleanup (void)
      fallocate
      posix_fallocate   
    Returns 0 on success or -1 on failure  */
-static int preallocate_file(int fd, loff_t filesize)
+static int
+preallocate_file (int fd, loff_t filesize)
 {
   // On some systems, fallocate returns a long, and on some it returns
   // an int.
@@ -787,6 +788,33 @@ static int preallocate_file(int fd, loff_t filesize)
 #endif
 }
 #endif
+
+static size_t open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps);
+
+/*  Estimates the filesize for the temporary file which will be
+    needed to store the first nfiles in files. */
+off_t
+estimated_temp_file_size (struct sortfile *files, size_t nfiles)
+{
+  // TODO: This is probably really slow. We should try to refactor this
+  // to hopefully not require as much disk access
+  FILE **tempfps;
+  size_t num_files_opened = open_input_files (files, nfiles, &tempfps);
+  off_t temp_file_size = 0;
+  size_t i;
+  for (i = 0; i < num_files_opened; i++)
+    {
+      FILE *opened_file = tempfps[i];
+      int fd = fileno(opened_file);
+      struct stat opened_file_info;
+      if (fstat (fd, &opened_file_info))
+        {
+          temp_file_size += opened_file_info.st_size;
+        }
+        close (fd);
+    }
+    return temp_file_size;
+}
 
 /* Create a new temporary file, returning its newly allocated tempnode.
    Store into *PFD the file descriptor open for writing.
@@ -1027,14 +1055,20 @@ maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
   return name;
 }
 
-/* Create a temporary file and start a compression program to filter output
-   to that file.  Set *PFP to the file handle and if *PPID is non-NULL,
+/* Create a temporary file, preallocated to the specified size (if supported) 
+   and start a compression program to filter output to that file.  
+   Set *PFP to the file handle and if *PPID is non-NULL,
    set it to the PID of the newly-created process.  Die on failure.  */
 
 static char *
-create_temp (FILE **pfp, pid_t *ppid)
+create_temp (FILE **pfp, pid_t *ppid, off_t size)
 {
-  return maybe_create_temp (pfp, ppid, false);
+  char *filename = maybe_create_temp (pfp, ppid, false);
+#if HAVE_PREALLOCATION_SUPPORT
+  if (size > 0 && filename != NULL)
+    preallocate_file (pfp->fd, size);
+#endif
+  return filename;
 }
 
 /* Open a compressed temp file and start a decompression process through
@@ -2785,7 +2819,7 @@ avoid_trashing_input (struct sortfile *files, size_t ntemps,
   size_t i;
   bool got_outstat = false;
   struct stat outstat;
-
+  
   for (i = ntemps; i < nfiles; i++)
     {
       bool is_stdin = STREQ (files[i].name, "-");
@@ -2817,7 +2851,7 @@ avoid_trashing_input (struct sortfile *files, size_t ntemps,
         {
           FILE *tftp;
           pid_t pid;
-          char *temp = create_temp (&tftp, &pid);
+          char *temp = create_temp (&tftp, &pid, instat.st_size);
           size_t num_merged = 0;
           do
             {
@@ -2870,7 +2904,9 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
         {
           FILE *tfp;
           pid_t pid;
-          char *temp = create_temp (&tfp, &pid);
+          
+          off_t temp_file_size = estimated_temp_file_size (&files[in], nmerge);
+          char *temp = create_temp (&tfp, &pid, temp_file_size);
           size_t num_merged = mergefiles (&files[in], MIN (ntemps, nmerge),
                                           nmerge, tfp, temp);
           ntemps -= MIN (ntemps, num_merged);
@@ -2890,7 +2926,8 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
           size_t nshortmerge = remainder - cheap_slots + 1;
           FILE *tfp;
           pid_t pid;
-          char *temp = create_temp (&tfp, &pid);
+          off_t temp_file_size = estimated_temp_file_size (&files[in], nshortmerge);
+          char *temp = create_temp (&tfp, &pid, temp_file_size);
           size_t num_merged = mergefiles (&files[in], MIN (ntemps, nshortmerge),
                                           nshortmerge, tfp, temp);
           ntemps -= MIN (ntemps, num_merged);
@@ -2971,7 +3008,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
   bool output_file_created = false;
 
   buf.alloc = 0;
-
   while (nfiles)
     {
       char const *temp_output;
@@ -2990,7 +3026,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       buf.eof = false;
       files++;
       nfiles--;
-
+      
       while (fillbuf (&buf, fp, file))
         {
           struct line *line;
@@ -3021,7 +3057,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           else
             {
               ++ntemps;
-              temp_output = create_temp (&tfp, NULL);
+              temp_output = create_temp (&tfp, NULL, buf.used);
             }
 
           do
@@ -3291,13 +3327,13 @@ main (int argc, char **argv)
 #endif
 
 #ifdef HAVE_SYS_FALLOCATE
-  fprintf(stdout, "fallocate system call is available");
+  fprintf(stderr, "fallocate system call is available\n");
 #elif HAVE_FALLOCATE
-  fprintf(stdout, "fallocate() is available");
+  fprintf(stderr, "fallocate() is available\n");
 #elif HAVE_POSIX_FALLOCATE
-  fprintf(stdout, "posix_fallocate() is available");
+  fprintf(stderr, "posix_fallocate() is available\n");
 #else
-  fprintf(stdout, "No preallocation support is available");
+  fprintf(stderr, "No preallocation support is available\n");
 #endif
 
   /* Get locale's representation of the decimal point.  */
