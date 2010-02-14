@@ -155,7 +155,7 @@ struct line
   char *keylim;			/* Limit of first key. */
 };
 
-/* XXX New struct for Heap!!! - Noah
+/* XXX New functions and structs for Heap implementation!!! - Noah
 
 Notes to Kalvin:
 Since we are doing this in C, there aren't technically any "objects", so we kinda have to
@@ -163,13 +163,31 @@ abstract them. This is done by passing in pointers to the "object" structure as 
 parameter of any heap function.
 
 */
+
 struct heap
 {
 	size_t *heapArray;
 	size_t heapSize;
 	size_t nitems;
-	int (*compare) (const struct line*, const struct line*);
+	int (*compare) (const void*, const void*);
 };
+
+struct tuple
+{
+	size_t first;
+	size_t second;
+};
+
+/* Compare two tuples, using the first item in each tuple. */
+
+static int
+tuple_compare (const struct tuple *a, const struct tuple *b)
+{
+	if(a && b)
+		return compare(a->first, b->first);
+	else
+		return 0;
+}
 
 /* Equivalent to a constructor
 	Input parameters:
@@ -178,7 +196,8 @@ struct heap
 		size - the size of the heap to be initialized
 	This will dynamically allocate size space for the heap
 */
-void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const struct line* a, const struct line* b))
+void
+heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const void*, const void*))
 {
 	if(aHeap)
 	{
@@ -190,6 +209,7 @@ void heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const struct 
 }
 
 /*do we need a heapify function?
+// Noah - actually, probably not.
 void
 heap_heapify(struct heap* aHeap)
 {
@@ -197,7 +217,7 @@ heap_heapify(struct heap* aHeap)
 }
 */
 size_t
-heap_push(struct heap* aHeap, const struct line* item)
+heap_push(struct heap* aHeap, const void* item)
 {
 	/*error checking.  Uncomment if needed as branches take compute time
 	if(aHeap->nitems == aHeap->heapSize)
@@ -247,6 +267,16 @@ heap_pop(struct heap* aHeap)
 		
 	}
 	return temp;
+}
+
+void*
+heap_peek(const struct heap* aHeap)
+{
+	if(aHeap && aHeap->heapArray)
+	{
+		return &(aHeap->heapArray[0]);
+	}
+	return NULL;
 }
 
 
@@ -2533,23 +2563,37 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
         }
     }
 
+	// XXX Build ord table
+	
   /* Set up the ord table according to comparisons among input lines.
      Since this only reorders two items if one is strictly greater than
      the other, it is stable. */
+	 
+	 //tuples are of format: (struct line, index)
+	 //This is so the first element is used by the generic compare function.
 
 	struct heap fileSort;
-	heap_init(&fileSort, nfiles, compare);
+	heap_init(&fileSort, nfiles, tuple_compare);
 	for (i = 0; i < nfiles; ++i)
-		heap_push(&fileSort, cur[i]);
-  for (i = 0; i < nfiles; ++i)
+	{
+		tuple *t = malloc(sizeof(tuple));
+		t->first = cur[i];
+		t->second = i;
+		heap_push(&fileSort, &t);
+	}
+	ord[0] = ((struct tuple*)heap_peek(fileSort))->second;
+	
+	/*
+	for (i = 0; i < nfiles; ++i)
+	{
 		if((struct line*)fileSort.heapArray[0] == cur[i])
 		{
 			ord[0]=i;
 			break;
 		}
-
-
-
+	}
+	*/
+	
 /*
   for (i = 0; i < nfiles; ++i)
     ord[i] = i;
