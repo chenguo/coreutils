@@ -4,9 +4,10 @@ sort ():
   Remove writing to output (refactoring to top level merge)
 
 sortlines ():
-  Rename arguments: lines -> source, temp -> dest.
+  Rename arguments: temp -> dest. (DONE: Chen)
   Add total_lines, pointer to parent struct, pointer to end in parent struct.
     (GENE: correct this if this is wrong, I know you have this written down)
+    (DONE: Chen. ** More arguments may need to be added **)
   Construct work_unit struct for node.
   Modify arguments struct for pthread create, for new sortlines arguments.
   Modify recursive call to sortlines for new arguments.
@@ -19,7 +20,7 @@ mergelines ():
     n2, dest.
 
 sortlines_thread ():
-  Modify to satisfy new arguments.
+  Modify to satisfy new arguments. (DONE: Chen)
 
 Priority Queue:
   Be able to link to it first, I guess.
