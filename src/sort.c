@@ -49,11 +49,8 @@
 #include "xnanosleep.h"
 #include "xstrtol.h"
 
-#if HAVE_SYS_FALLOCATE
-#include <sys/syscall.h>
-#include <linux/fs.h> // for FA_ALLOCATE
-#elif HAVE_FALLOCATE
-#include <linux/fs.h> // for FA_ALLOCATE
+#if HAVE_FCNTL_H
+#include <fcntl.h>
 #endif
 
 #if HAVE_SYS_RESOURCE_H
@@ -73,14 +70,6 @@ struct rlimit { size_t rlim_cur; };
 
 #if HAVE_LANGINFO_CODESET
 # include <langinfo.h>
-#endif
-
-#if HAVE_SYS_FALLOCATE
-#define HAVE_PREALLOCATION_SUPPORT 1
-#elif HAVE_FALLOCATE
-#define HAVE_PREALLOCATION_SUPPORT 1
-#elif HAVE_POSIX_FALLOCATE
-#define HAVE_PREALLOCATION_SUPPORT 1
 #endif
 
 /* Use SA_NOCLDSTOP as a proxy for whether the sigaction machinery is
@@ -767,27 +756,24 @@ exit_cleanup (void)
   close_stdout ();
 }
 
-#if HAVE_PREALLOCATION_SUPPORT
 /* Preallocate the file given by fd with the size filesize.
    In order of preference, this function will use, based on availability,
-     SYS_fallocate
      fallocate
      posix_fallocate   
    Returns 0 on success or -1 on failure  */
 static int
-preallocate_file (int fd, loff_t filesize)
+preallocate_file (int fd, off_t filesize)
 {
   // On some systems, fallocate returns a long, and on some it returns
   // an int.
-#if HAVE_SYS_FALLOCATE
-  return (int)syscall(SYS_fallocate, fd, FA_ALLOCATE, (loff_t)0, filesize);
-#elif HAVE_FALLOCATE
-  return (int)fallocate(fd, FA_ALLOCATE, (loff_t)0, filesize);
+#if HAVE_FALLOCATE
+  return (int)fallocate(fd, 0, (off_t)0, filesize);
 #elif HAVE_POSIX_FALLOCATE
-  return posix_fallocate(fd, (off_t)0, (off_t)filesize);
+  return posix_fallocate(fd, (off_t)0, filesize);
+#else
+  return 0;
 #endif
 }
-#endif
 
 static size_t open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps);
 
@@ -1064,10 +1050,8 @@ static char *
 create_temp (FILE **pfp, pid_t *ppid, off_t size)
 {
   char *filename = maybe_create_temp (pfp, ppid, false);
-#if HAVE_PREALLOCATION_SUPPORT
   if (size > 0 && filename != NULL)
-    preallocate_file (pfp->fd, size);
-#endif
+    preallocate_file (fileno(*pfp), size);
   return filename;
 }
 
@@ -3326,9 +3310,7 @@ main (int argc, char **argv)
   hard_LC_TIME = hard_locale (LC_TIME);
 #endif
 
-#ifdef HAVE_SYS_FALLOCATE
-  fprintf(stderr, "fallocate system call is available\n");
-#elif HAVE_FALLOCATE
+#if HAVE_FALLOCATE
   fprintf(stderr, "fallocate() is available\n");
 #elif HAVE_POSIX_FALLOCATE
   fprintf(stderr, "posix_fallocate() is available\n");

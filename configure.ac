@@ -346,15 +346,7 @@ fi
 
 # Check if there is a system-level fallocate or if we should fall
 # back to posix_fallocate
-AC_CHECK_FUNCS(fallocate, posix_fallocate)
-AC_CACHE_CHECK([for SYS_fallocate],utils_cv_have_sys_fallocate,[
-AC_TRY_COMPILE([#include <sys/syscall.h>
-	#include <sys/types.h>],
-	[syscall(SYS_fallocate, 0, 0, (loff_t) 0, (loff_t) 0);],
-	utils_cv_have_sys_fallocate=yes,utils_vs_have_sys_fallocate=no)])
-if test x"$utils_cv_have_sys_fallocate" = x"yes"; then
-	AC_DEFINE(HAVE_SYS_FALLOCATE, 1, [Define to 1 if there is a SYS_FALLOCATE syscall])
-fi
+AC_CHECK_HEADERS(fcntl.h, [AC_CHECK_FUNCS(fallocate posix_fallocate)])
 
 ############################################################################
 mk="$srcdir/src/Makefile.am"
