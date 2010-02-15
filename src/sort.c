@@ -245,7 +245,7 @@ heap_pop(struct heap* aHeap)
 	int loc=0;
 	//store the root that will be popped
 	size_t temp=((struct tuple*)(aHeap->heapArray[0]))->second;
-	free(((void*)aHeap->heapArray[0]));
+	free(((void*)(aHeap->heapArray[0])));
 	//decrement item #
 	aHeap->nitems=aHeap->nitems-1;
 	//take last item and place as new root
@@ -2657,11 +2657,10 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       if (base[ord[0]] < smallest)
 	{
         cur[ord[0]] = smallest - 1;
-	printf("READ MORE\n");
 	}
       else
         {
-	printf("FUCK\n");
+	
           if (fillbuf (&buffer[ord[0]], fps[ord[0]], files[ord[0]].name))
             {
               struct line const *linelim = buffer_linelim (&buffer[ord[0]]);
@@ -2669,14 +2668,18 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               base[ord[0]] = linelim - buffer[ord[0]].nlines;
             }
           else
-            {printf("FUCK\n");
+            {
+		exit(1);
               /* We reached EOF on fps[ord[0]].  */
   /*           for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
                   --ord[i];*/
 	     for(i=1; i<nfiles; ++i)
+		{
+		printf("HI\n");
 		if(((struct tuple*)fileSort.heapArray[i])->second > ord[0])
-	          (((struct tuple*)fileSort.heapArray[i])->second)=(((struct tuple*)fileSort.heapArray[i])->second)--;
+		          (((struct tuple*)fileSort.heapArray[i])->second)=(((struct tuple*)fileSort.heapArray[i])->second)--;
+		}
               --nfiles;
               xfclose (fps[ord[0]], files[ord[0]].name);
               if (ord[0] < ntemps)
@@ -2724,8 +2727,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
         for (j = 0; j < count_of_smaller_lines; j++)
           ord[j] = ord[j + 1];
         ord[count_of_smaller_lines] = ord0;*/
-	printf("AAAAGH\n");
-	if(base[ord[0]] < cur[ord[0]])
+	//printf("AAAAGH\n");
+//	if(base[ord[0]] < cur[ord[0]])
 		{
 			struct tuple* temp=malloc(sizeof(struct tuple));
 			temp->first=(size_t)cur[ord[0]];
@@ -2733,18 +2736,18 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 			heap_push(&fileSort, temp);
 		}
 		ord[0]=heap_pop(&fileSort);
-	printf("ENDAGGH\n");
+	//printf("ENDAGGH\n");
       }
 
       /* Free up some resources every once in a while.  */
       if (MAX_PROCS_BEFORE_REAP < nprocs)
       {
-	printf("REAP\n");  reap_some ();}
+	//printf("REAP\n"); 
+	 reap_some ();}
     }
-
   if (unique && savedline)
     {
-	printf("what is tis?\n");
+	//printf("what is tis?\n");
       write_bytes (saved.text, saved.length, ofp, output_file);
       free (saved.text);
     }
@@ -2755,6 +2758,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   free(ord);
   free(base);
   free(cur);
+  printf("FINISH THIS%d\n", fileSort.nitems);
   heap_free(&fileSort);
 }
 
