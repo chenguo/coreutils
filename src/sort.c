@@ -244,7 +244,8 @@ heap_pop(struct heap* aHeap)
 	
 	int loc=0;
 	//store the root that will be popped
-	size_t temp=aHeap->heapArray[0];
+	size_t temp=((struct tuple*)(aHeap->heapArray[0]))->second;
+	free(((void*)aHeap->heapArray[0]));
 	//decrement item #
 	aHeap->nitems=aHeap->nitems-1;
 	//take last item and place as new root
@@ -298,7 +299,7 @@ heap_free(struct heap* aHeap)
 	if(aHeap)
 	{
 		free(aHeap->heapArray);
-		 free(aHeap);		//Frees the heap object itself
+	//	 free(aHeap);		//Frees the heap object itself
 	}
 }
 
@@ -2538,7 +2539,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
                                 /* Current line in each line table. */
   struct line const **base = xnmalloc (nfiles, sizeof *base);
                                 /* Base of each line table.  */
-  size_t *ord = xnmalloc (nfiles, sizeof *ord);
+  size_t *ord = xnmalloc (1, sizeof *ord);
                                 /* Table representing a permutation of fps,
                                    such that cur[ord[0]] is the smallest line
                                    and will be next output. */
@@ -2589,25 +2590,18 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	 //This is so the first element is used by the generic compare function.
 
 	struct heap fileSort;
+	struct tuple* temp_tuple;
 	heap_init(&fileSort, nfiles, tuple_compare);
-	for (i = 0; i < nfiles; ++i)
+	for (i = 0; i < nfiles; i++)
 	{
-		struct tuple *t = malloc(sizeof(struct tuple));
-		t->first = (size_t)cur[i];
-		t->second = i;
-		heap_push(&fileSort, &t);
+		temp_tuple = malloc(sizeof(struct tuple));
+		temp_tuple->first = (size_t)cur[i];
+		temp_tuple->second = i;
+		heap_push(&fileSort, temp_tuple);
 	}
-	ord[0] = ((struct tuple*)heap_peek(&fileSort))->second;
+	ord[0] = heap_pop(&fileSort);
 	
-/*	for (i = 0; i < nfiles; ++i)
-	{
-		if((struct line*)fileSort.heapArray[0] == cur[i])
-		{
-			ord[0]=i;
-			break;
-		}
-	}
-*/	
+	
 	
 /*
   for (i = 1; i < nfiles; ++i)
@@ -2661,9 +2655,13 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 
       /* Check if we need to read more lines into core. */
       if (base[ord[0]] < smallest)
+	{
         cur[ord[0]] = smallest - 1;
+	printf("READ MORE\n");
+	}
       else
         {
+	printf("FUCK\n");
           if (fillbuf (&buffer[ord[0]], fps[ord[0]], files[ord[0]].name))
             {
               struct line const *linelim = buffer_linelim (&buffer[ord[0]]);
@@ -2671,14 +2669,14 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               base[ord[0]] = linelim - buffer[ord[0]].nlines;
             }
           else
-            {
+            {printf("FUCK\n");
               /* We reached EOF on fps[ord[0]].  */
   /*           for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
                   --ord[i];*/
-	     for(i=1; i<fileSort.nitems; ++i)
+	     for(i=1; i<nfiles; ++i)
 		if(((struct tuple*)fileSort.heapArray[i])->second > ord[0])
-	          --(((struct tuple*)fileSort.heapArray[i])->second);
+	          (((struct tuple*)fileSort.heapArray[i])->second)=(((struct tuple*)fileSort.heapArray[i])->second)--;
               --nfiles;
               xfclose (fps[ord[0]], files[ord[0]].name);
               if (ord[0] < ntemps)
@@ -2726,24 +2724,27 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
         for (j = 0; j < count_of_smaller_lines; j++)
           ord[j] = ord[j + 1];
         ord[count_of_smaller_lines] = ord0;*/
-		ord[0]=((struct tuple*)heap_pop(&fileSort))->second;
-//		if(base[ord[0]] < cur[ord[0]])
+	printf("AAAAGH\n");
+	if(base[ord[0]] < cur[ord[0]])
 		{
 			struct tuple* temp=malloc(sizeof(struct tuple));
 			temp->first=(size_t)cur[ord[0]];
 			temp->second=ord[0];	
 			heap_push(&fileSort, temp);
 		}
-
+		ord[0]=heap_pop(&fileSort);
+	printf("ENDAGGH\n");
       }
 
       /* Free up some resources every once in a while.  */
       if (MAX_PROCS_BEFORE_REAP < nprocs)
-        reap_some ();
+      {
+	printf("REAP\n");  reap_some ();}
     }
 
   if (unique && savedline)
     {
+	printf("what is tis?\n");
       write_bytes (saved.text, saved.length, ofp, output_file);
       free (saved.text);
     }
