@@ -2669,16 +2669,24 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
             }
           else
             {
-		exit(1);
               /* We reached EOF on fps[ord[0]].  */
   /*           for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
                   --ord[i];*/
-	     for(i=1; i<nfiles; ++i)
+	     for(i=1; i<fileSort.nitems; i++)
 		{
-		printf("HI\n");
-		if(((struct tuple*)fileSort.heapArray[i])->second > ord[0])
-		          (((struct tuple*)fileSort.heapArray[i])->second)=(((struct tuple*)fileSort.heapArray[i])->second)--;
+	
+		size_t temp_ord=((struct tuple*)fileSort.heapArray[i])->second;
+		printf("nfiles%d\n", temp_ord);
+		if(temp_ord > ord[0])
+		{
+			printf("Shiftdown\n");
+		         (((struct tuple*)fileSort.heapArray[i])->second)--;
+			temp_ord=((struct tuple*)fileSort.heapArray[i])->second;
+		printf("nfiles%d\n", temp_ord);
+
+	
+		}
 		}
               --nfiles;
               xfclose (fps[ord[0]], files[ord[0]].name);
@@ -2698,7 +2706,10 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
                 }
              /* for (i = 0; i < nfiles; ++i)
                 ord[i] = ord[i + 1];*/
+		ord[0]=heap_pop(&fileSort);
+		printf("new nitems %d\n", fileSort.nitems);
               continue;
+		exit(1);
             }
         }
 
