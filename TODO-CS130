@@ -5,8 +5,7 @@ sort ():
 
 sortlines ():
   Rename arguments: temp -> dest. (DONE: Chen)
-  Add total_lines, pointer to parent struct, pointer to end in parent struct.
-    (GENE: correct this if this is wrong, I know you have this written down)
+  Add total_lines, pointer to parent struct, pointer to end of src_(hi|lo) in parent struct.
     (DONE: Chen. ** More arguments may need to be added **)
   Construct work_unit struct for node. (DONE: Chen)
   Modify arguments struct for pthread create, for new sortlines arguments. (DONE: Chen)
