@@ -2675,14 +2675,9 @@ mergesort (struct line *restrict lines, size_t nlines,
       struct line *lo = lines;
       struct line *hi = lines - nlo;
 
-      /* XXX by Gene: commented out sortlines() call to make sort.c compile
-      sortlines (hi, nhi, temp - (to_temp ? nlo : 0), 1, to_temp);
-       */
+      mergesort (hi, nhi, temp - (to_temp ? nlo : 0), to_temp);
       if (1 < nlo)
-        ; /*
-        XXX by Gene: commented out sortlines() call to make sort.c compile
-        sortlines (lo, nlo, temp, 1, !to_temp);
-         */
+        mergesort (lo, nlo, temp, !to_temp);
       else if (!to_temp)
         temp[-1] = lo[-1];
 
@@ -3063,9 +3058,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
-            ; /* XXX by Gene: to make sort.c compile
-            sortlines (line, buf.nlines, linebase, nthreads, nlines, NULL, NULL);
-            */
+            sortlines (line, buf.nlines, linebase, nthreads, buf.nlines, NULL, NULL);
           if (buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
