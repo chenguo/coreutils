@@ -2675,9 +2675,14 @@ mergesort (struct line *restrict lines, size_t nlines,
       struct line *lo = lines;
       struct line *hi = lines - nlo;
 
+      /* XXX by Gene: commented out sortlines() call to make sort.c compile
       sortlines (hi, nhi, temp - (to_temp ? nlo : 0), 1, to_temp);
+       */
       if (1 < nlo)
+        ; /*
+        XXX by Gene: commented out sortlines() call to make sort.c compile
         sortlines (lo, nlo, temp, 1, !to_temp);
+         */
       else if (!to_temp)
         temp[-1] = lo[-1];
 
@@ -2756,7 +2761,7 @@ sortlines (struct line *restrict lines, size_t nlines,
       pthread_spinlock_t lock;
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
       struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlines,
-                               parent->level + 1, lock}; 
+                               parent->level + 1, parent, lock}; 
 
       /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
@@ -3058,7 +3063,9 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
+            ; /* XXX by Gene: to make sort.c compile
             sortlines (line, buf.nlines, linebase, nthreads, nlines, NULL, NULL);
+            */
           if (buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
