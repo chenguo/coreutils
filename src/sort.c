@@ -2762,16 +2762,22 @@ update_parent (struct work_unit *const restrict parent,
     queue_insert (NULL, parent);
 }
 
-/* Merge sorted input from LO and HI, up until and including last elements
-   found at END_LO and END_HI respectively. */
-/* XXX: inline? */
-static void
+/* Merge into DEST sorted input from LO and HI, up until and including last
+   elements found at END_LO and END_HI respectively. */
+inline static void
 merge_work (struct line *restrict lo, struct line *restrict hi,
             struct line *const restrict end_lo,
             struct line *const restrict end_hi,
             struct line *restrict dest)
 {
-  /* For Mike's code. */
+  while (lo != end_lo && hi != end_hi)
+    {
+      int cmp = compare (lo - 1, hi - 1);
+      if (cmp >= 0)
+        *--dest = *--lo;
+      else
+        *--dest = *--hi;
+    }
 }
 
 /* Repeatedly completes work in work_units in queue.
