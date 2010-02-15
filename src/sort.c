@@ -2699,7 +2699,8 @@ mergesort (struct line *restrict lines, size_t nlines,
 
 /* Insert work unit into priority queue. */
 static void
-queue_insert (void *const restrict queue, struct *const restrict work_unit)
+queue_insert (void *const restrict queue,
+              struct work_unit *const restrict work)
 {
 }
 
