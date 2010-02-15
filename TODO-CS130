@@ -1,6 +1,6 @@
 sort ():
   Modify bytes_per_line to be (log P + 1) * sizeof (struct line)
-  Modify call to sortlines () (added arguments mostly)
+  Modify call to sortlines () (added arguments mostly) (DONE: Chen)
   Remove writing to output (refactoring to top level merge)
 
 sortlines ():

@@ -205,8 +205,8 @@ struct month
 /* Work to be done at one level in the merge tree. */
 struct work_unit
 {
-  struct line *src_lo;          /* Available lines merged from LO. */
-  struct line *src_hi;          /* Available lines merged from HI. */
+  struct line *lo;          /* Available lines merged from LO. */
+  struct line *hi;          /* Available lines merged from HI. */
   struct line *end_lo;          /* End of available lines from LO. */
   struct line *end_hi;          /* End of available lines from HI. */
   struct line *dest;            /* Destination of merge. */
@@ -2697,17 +2697,29 @@ mergesort (struct line *restrict lines, size_t nlines,
     }
 }
 
-static void sortlines (struct line *restrict, size_t, struct line *restrict,
-                       unsigned long int, size_t, struct work_unit *restrict,
-                       struct line **restrict);
+/* Merge sorted input from LO and HI, up until and including last elements
+   found at END_LO and END_HI respectively. */
+
+static void
+merge_work (struct line *restrict lo, struct line *restrict hi,
+            struct line *const restrict end_lo,
+            struct line *const restrict end_hi,
+            struct line *restrict dest)
+{
+
+}
+
+static void sortlines (struct line *restrict, struct line *restrict,
+                       unsigned long int, size_t, size_t const,
+                       struct work_unit *restrict, struct line **restrict);
  
 /* Thread arguments for sortlines_thread. */
 struct thread_args
 {
   struct line *lines;
-  size_t nlines;
   struct line *dest;
   unsigned long int nthreads;
+  size_t nlines;
   size_t total_lines;
   struct work_unit *parent;
   struct line **parent_end;
@@ -2718,17 +2730,16 @@ static void *
 sortlines_thread (void *data)
 {
   struct thread_args const *args = data;
-  sortlines (args->lines, args->nlines, args->dest, args->nthreads,
+  sortlines (args->lines, args->dest, args->nthreads, args->nlines,
              args->total_lines, args->parent, args->parent_end);
   return NULL;
 }
 
 static void
-sortlines (struct line *restrict lines, size_t nlines,
-           struct line *restrict dest,
-           unsigned long int nthreads, size_t total_lines,
-           struct work_unit *restrict parent,
-           struct line **restrict parent_end)
+sortlines (struct line *restrict lines, struct line *restrict dest,
+           unsigned long int nthreads, size_t nlines, size_t const total_lines,
+           struct work_unit *const restrict parent,
+           struct line **const restrict parent_end)
 {
   if (nlines == 2)
     {
@@ -2762,7 +2773,7 @@ sortlines (struct line *restrict lines, size_t nlines,
       unsigned long int child_subthreads = nthreads / 2;
       unsigned long int my_subthreads = nthreads - child_subthreads;
       pthread_t thread;
-      struct thread_args args = {lines - nlo, nhi, hi, child_subthreads,
+      struct thread_args args = {lines - nlo, hi, child_subthreads, nhi,
                                  total_lines, &work, &work.end_hi};
 
       if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
@@ -2771,7 +2782,7 @@ sortlines (struct line *restrict lines, size_t nlines,
           /* Guarantee that nlo and nhi are each at least 2.  */
           verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-          sortlines (lines, nlo, lo, my_subthreads, total_lines, &work,
+          sortlines (lines, lo, my_subthreads, nlo, total_lines, &work,
                      &work.end_lo);
           pthread_join (thread, NULL);
         }
@@ -3058,7 +3069,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
-            sortlines (line, buf.nlines, linebase, nthreads, buf.nlines, NULL, NULL);
+            sortlines (line, linebase, nthreads, buf.nlines, buf.nlines, NULL, NULL);
           if (buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
