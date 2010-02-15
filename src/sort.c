@@ -205,8 +205,8 @@ struct month
 /* Work to be done at one level in the merge tree. */
 struct work_unit
 {
-  struct line *lo;          /* Available lines merged from LO. */
-  struct line *hi;          /* Available lines merged from HI. */
+  struct line *lo;              /* Available lines merged from LO. */
+  struct line *hi;              /* Available lines merged from HI. */
   struct line *end_lo;          /* End of available lines from LO. */
   struct line *end_hi;          /* End of available lines from HI. */
   struct line *dest;            /* Destination of merge. */
@@ -214,9 +214,10 @@ struct work_unit
                                    dependent on if this work unit is merging
                                    parent's LO or HI. */
   size_t nlines;                /* Lines left to merge. */
+  size_t total_lines;           /* Total number of lines. */
   size_t level;                 /* Level in merge tree. Top level is 0. */
   struct work_unit *parent;     /* Pointer to parent work unit. */
-  pthread_spinlock_t lock;      /* Some spinlock item. */
+  pthread_spinlock_t *lock;     /* Some spinlock item. */
 };
 
 /* FIXME: None of these tables work with multibyte character sets.
@@ -2698,27 +2699,31 @@ mergesort (struct line *restrict lines, size_t nlines,
 }
 
 /* Insert work unit into priority queue. */
-static void
+static inline void
 queue_insert (void *const restrict queue,
               struct work_unit *const restrict work)
 {
 }
 
 /* Delete top element of priority queue. */
-static void
+static inline void
 queue_delete_top (void *const restrict queue)
 {
 }
 
 /* Return top work_unit off priority queue. */
-static struct work_unit *
+/* GENE: we only need this to check if the top element is a EOF. Would it
+     make sense to not use this, and if EOF is popped, just insert it
+     again? At that point EOF would be the only element, so it'd be O(1)
+     to insert. */
+static inline struct work_unit *
 queue_top (void *const restrict queue)
 {
   return NULL;
 }
 
 /* Pop top work unit off priority queue. */
-static struct work_unit *
+static inline struct work_unit *
 queue_pop (void *const restrict queue)
 {
   struct work_unit *ret = queue_top(queue);
@@ -2726,10 +2731,40 @@ queue_pop (void *const restrict queue)
   return ret;
 }
 
+static inline void
+lock_work_unit (struct work_unit *const restrict work)
+{
+  pthread_spin_lock (work->lock);
+}
+
+static inline void
+unlock_work_unit (struct work_unit *const restrict work)
+{
+  pthread_spin_unlock (work->lock);
+}
+
+static inline void
+update_parent (struct work_unit *const restrict parent,
+               struct line **const restrict parent_end,
+               size_t nlines)
+{
+  lock_work_unit (parent);
+  if (parent_end)
+    *parent_end += nlines;
+  size_t level = parent->level;
+  size_t nlo = parent->end_lo - parent->lo;
+  size_t nhi = parent->end_hi - parent->hi;
+  size_t total = parent->total_lines;
+  unlock_work_unit (parent);
+
+  /* TODO: refactor the 10 to a constant, maybe a define. */
+  if (nlo && nhi && (nlo + nhi > total / (10 * level)))
+    queue_insert (NULL, parent);
+}
 
 /* Merge sorted input from LO and HI, up until and including last elements
    found at END_LO and END_HI respectively. */
-
+/* XXX: inline? */
 static void
 merge_work (struct line *restrict lo, struct line *restrict hi,
             struct line *const restrict end_lo,
@@ -2738,6 +2773,61 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
 {
   /* For Mike's code. */
 }
+
+/* Repeatedly completes work in work_units in queue.
+   XXX: maybe inline? */
+static void *
+do_work (void *nothing)
+{
+  /* XXX: to test: faster to hold shorter locks and copy
+     variables to local scop? */
+  while (1)
+    {
+      /* Loop:
+         1. Pop top work unit.
+         2. Extract necessary memebers.
+         3. Call mergelines.
+         4. Update work unit.
+         5. Update parent work unit.
+         6. If parent has work, push parent.
+            If parent is top level, and finished, push EOF.
+      */
+      /* TODO: replace NULL pointers with queue pointer. */
+      struct work_unit *work = queue_pop (NULL);
+      lock_work_unit (work);
+      struct line *lo = work->lo;
+      struct line *hi = work->hi;
+      struct line *end_lo = work->end_lo;
+      struct line *end_hi = work->end_hi;
+      struct line *dest = work->dest;
+      unlock_work_unit (work);
+
+      size_t merged_lines = end_hi - hi + end_lo - lo;
+      merge_work (lo, hi, end_lo, end_hi, dest);
+
+      lock_work_unit (work);
+      work->nlines -= merged_lines;
+      size_t nlines = work->nlines;
+      struct line **const parent_end = work->parent_end;
+      struct work_unit *const parent = work->parent;
+      unlock_work_unit (work);
+
+      if (parent)
+        update_parent (parent, parent_end, nlines);
+      else if (nlines == 0)
+        {
+          /* Push dummy... What should dummy be? */
+          /* IDEA: EOF declared in sort ().
+             1. Has legit total_lines value. This saves an argument to sortlines.
+             2. NULL all pointers in it. This way the dest - source check
+                always fails, and it never gets inserted.
+             3. This also provides an elegant way of destroying EOF: it's simply
+                gone when sort () returns. */
+        }
+    }
+  return NULL;
+}
+
 
 static void sortlines (struct line *restrict, struct line *restrict,
                        unsigned long int, size_t, size_t const,
@@ -2773,19 +2863,27 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
 {
   if (nlines == 2)
     {
-      /* Modify, we no longer use temp/to_temp.
+
       int swap = (0 < compare (&lines[-1], &lines[-2]));
-      if (to_temp)
+      dest[-1] = lines[-1 - swap];
+      dest[-2] = lines[-2 + swap];
+
+      if (parent)
+        update_parent (parent, parent_end, nlines);
+
+      /* Spin off threads to do work. */
+      pthread_t *threads;
+      int i;
+      if (nthreads > 1)
         {
-          temp[-1] = lines[-1 - swap];
-          temp[-2] = lines[-2 + swap];
+          threads = xmalloc ((nthreads - 1) * sizeof *threads);
+          for (i = 0; i < nthreads - 1; i++)
+            pthread_create (&threads[i], NULL, do_work, NULL);
         }
-      else if (swap)
-        {
-          temp[-1] = lines[-1];
-          lines[-1] = lines[-2];
-          lines[-2] = temp[-1];
-        } */
+      do_work (NULL);
+      if (nthreads > 1)
+        for (i = 0; i < nthreads - 1; i++)
+          pthread_join (threads[i], NULL);
     }
   else
     {
@@ -2794,10 +2892,11 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       size_t nhi = nlines - nlo;
       struct line *lo = dest - total_lines;
       struct line *hi = lo - nlo;
+      size_t level = (parent)? parent->level + 1 : 0;
       pthread_spinlock_t lock;
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
       struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlines,
-                               parent->level + 1, parent, lock}; 
+                               total_lines, level, parent, &lock};
 
       /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
@@ -2829,23 +2928,11 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
           work.end_lo = lo - nlo;
           work.end_hi = hi - nhi;
 
-          /* TODO: push work unit. */
+          /* Push work unit, initiate loop. */
+          queue_insert (NULL, &work);
+          do_work (NULL);
         }
 
-      /* TODO: if NTHREADS = 1, do job loop. */
-      if (nthreads == 1)
-        while (1)
-          {
-            /* Loop:
-                 1. Pop top work unit.
-                 2. Extract necessary memebers.
-                 3. Call mergelines.
-                 4. Update work unit.
-                 5. Update parent work unit.
-                 6. If parent has work, push parent.
-                    If parent is top level, and finished, push EOF.
-             */
-          }
     }
 }
 
