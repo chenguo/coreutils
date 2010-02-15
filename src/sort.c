@@ -766,10 +766,18 @@ preallocate_file (int fd, off_t filesize)
 {
   // On some systems, fallocate returns a long, and on some it returns
   // an int.
-#if HAVE_FALLOCATE
+#ifdef HAVE_FALLOCATE
   return (int)fallocate(fd, 0, (off_t)0, filesize);
-#elif HAVE_POSIX_FALLOCATE
+#elif defined(HAVE_POSIX_FALLOCATE)
   return posix_fallocate(fd, (off_t)0, filesize);
+#elif defined(__APPLE__)
+  fstore_t fst;
+  fst.fst_flags = F_ALLOCATECONTIG;
+  fst.fst_posmode = F_PEOFPOSMODE;
+  fst.fst_offset = 0;
+  fst.fst_length = filesize;
+  fst.fst_bytesalloc = 0;
+  return fcntl (fd, F_PREALLOCATE, &fst);
 #else
   return 0;
 #endif
@@ -3310,10 +3318,12 @@ main (int argc, char **argv)
   hard_LC_TIME = hard_locale (LC_TIME);
 #endif
 
-#if HAVE_FALLOCATE
+#ifdef HAVE_FALLOCATE
   fprintf(stderr, "fallocate() is available\n");
-#elif HAVE_POSIX_FALLOCATE
+#elif defined(HAVE_POSIX_FALLOCATE)
   fprintf(stderr, "posix_fallocate() is available\n");
+#elif defined(__APPLE__)
+  fprintf(stderr, "OS X preallocation is available\n");
 #else
   fprintf(stderr, "No preallocation support is available\n");
 #endif
