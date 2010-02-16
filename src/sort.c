@@ -3509,9 +3509,9 @@ main (int argc, char **argv)
 #ifdef SIGPOLL
         SIGPOLL,
 #endif
-//#ifdef SIGPROF
-//        SIGPROF,
-//#endif
+#ifdef SIGPROF
+        SIGPROF,
+#endif
 #ifdef SIGVTALRM
         SIGVTALRM,
 #endif
