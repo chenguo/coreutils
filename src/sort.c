@@ -2599,8 +2599,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 		temp_tuple->second = (void*)i;
 		heap_push(&fileSort, temp_tuple);
 	}
-        if(ord[0])
-          free(&ord[0]);
+        //if(ord[0])
+          //free(&ord[0]);
 	ord[0] = heap_pop(&fileSort);
 	
 	
@@ -2716,8 +2716,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
                   temp_tuple->second = (void*)i;
                   heap_push(&fileSort, temp_tuple);
                 }
-              if(ord[0])
-                free(&ord[0]);
+              //if(ord[0])
+                //free(&ord[0]);
               ord[0]=heap_pop(&fileSort);
               continue;
             }
@@ -2756,9 +2756,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           temp->second=(void*)ord[0];	
           heap_push(&fileSort, temp);
 	}
-          if(ord[0])
-            free(&ord[0]);
-          ord[0]=heap_pop(&fileSort);
+        ord[0]=heap_pop(&fileSort);
 	//printf("ENDAGGH\n");
       }
 
