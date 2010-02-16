@@ -783,7 +783,7 @@ preallocate_file (int fd, off_t filesize)
 #endif
 }
 
-static size_t open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps);
+static size_t open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps, size_t *total_size);
 
 /*  Estimates the filesize for the temporary file which will be
     needed to store the first nfiles in files. */
@@ -793,7 +793,7 @@ estimated_temp_file_size (struct sortfile *files, size_t nfiles)
   // TODO: This is probably really slow. We should try to refactor this
   // to hopefully not require as much disk access
   FILE **tempfps;
-  size_t num_files_opened = open_input_files (files, nfiles, &tempfps);
+  size_t num_files_opened = open_input_files (files, nfiles, &tempfps, NULL);
   off_t temp_file_size = 0;
   size_t i;
   for (i = 0; i < num_files_opened; i++)
@@ -1055,12 +1055,9 @@ maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
    set it to the PID of the newly-created process.  Die on failure.  */
 
 static char *
-create_temp (FILE **pfp, pid_t *ppid, off_t size)
+create_temp (FILE **pfp, pid_t *ppid)
 {
-  char *filename = maybe_create_temp (pfp, ppid, false);
-  if (size > 0 && filename != NULL)
-    preallocate_file (fileno(*pfp), size);
-  return filename;
+  return maybe_create_temp (pfp, ppid, false);
 }
 
 /* Open a compressed temp file and start a decompression process through
@@ -2399,10 +2396,12 @@ check (char const *file_name, char checkonly)
    less than NFILES.  */
 
 static size_t
-open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps)
+open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps, size_t *total_size)
 {
   FILE **fps = *pfps = xnmalloc (nfiles, sizeof *fps);
   int i;
+  struct stat st;
+  *total_size = 0;
 
   /* Open as many input files as we can.  */
   for (i = 0; i < nfiles; i++)
@@ -2412,6 +2411,8 @@ open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps)
                 : stream_open (files[i].name, "r"));
       if (!fps[i])
         break;
+      if (total_size && 0 == fstat (fileno(fps[i]), &st))
+        *total_size += st.st_size;
     }
 
   return i;
@@ -2632,9 +2633,13 @@ mergefiles (struct sortfile *files, size_t ntemps, size_t nfiles,
             FILE *ofp, char const *output_file)
 {
   FILE **fps;
-  size_t nopened = open_input_files (files, nfiles, &fps);
+  struct stat st;
+  size_t total_size;
+  size_t nopened = open_input_files (files, nfiles, &fps, &total_size);
   if (nopened < nfiles && nopened < 2)
     die (_("open failed"), files[nopened].name);
+  if (0 == fstat (fileno(ofp), &st) && st.st_size/2 < total_size)
+    preallocate_file (fileno(ofp), total_size);
   mergefps (files, ntemps, nopened, ofp, output_file, fps);
   return nopened;
 }
@@ -2811,7 +2816,7 @@ avoid_trashing_input (struct sortfile *files, size_t ntemps,
   size_t i;
   bool got_outstat = false;
   struct stat outstat;
-  
+
   for (i = ntemps; i < nfiles; i++)
     {
       bool is_stdin = STREQ (files[i].name, "-");
@@ -2843,7 +2848,7 @@ avoid_trashing_input (struct sortfile *files, size_t ntemps,
         {
           FILE *tftp;
           pid_t pid;
-          char *temp = create_temp (&tftp, &pid, instat.st_size);
+          char *temp = create_temp (&tftp, &pid);
           size_t num_merged = 0;
           do
             {
@@ -2896,9 +2901,7 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
         {
           FILE *tfp;
           pid_t pid;
-          
-          off_t temp_file_size = estimated_temp_file_size (&files[in], nmerge);
-          char *temp = create_temp (&tfp, &pid, temp_file_size);
+          char *temp = create_temp (&tfp, &pid);
           size_t num_merged = mergefiles (&files[in], MIN (ntemps, nmerge),
                                           nmerge, tfp, temp);
           ntemps -= MIN (ntemps, num_merged);
@@ -2918,8 +2921,7 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
           size_t nshortmerge = remainder - cheap_slots + 1;
           FILE *tfp;
           pid_t pid;
-          off_t temp_file_size = estimated_temp_file_size (&files[in], nshortmerge);
-          char *temp = create_temp (&tfp, &pid, temp_file_size);
+          char *temp = create_temp (&tfp, &pid);
           size_t num_merged = mergefiles (&files[in], MIN (ntemps, nshortmerge),
                                           nshortmerge, tfp, temp);
           ntemps -= MIN (ntemps, num_merged);
@@ -2945,11 +2947,13 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
     {
       /* Merge directly into the output file if possible.  */
       FILE **fps;
-      size_t nopened = open_input_files (files, nfiles, &fps);
+      size_t total_size;
+      size_t nopened = open_input_files (files, nfiles, &fps, &total_size);
 
       if (nopened == nfiles)
         {
           FILE *ofp = stream_open (output_file, "w");
+          preallocate_file (fileno(ofp), total_size);
           if (ofp)
             {
               mergefps (files, ntemps, nfiles, ofp, output_file, fps);
@@ -3000,6 +3004,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
   bool output_file_created = false;
 
   buf.alloc = 0;
+
   while (nfiles)
     {
       char const *temp_output;
@@ -3018,7 +3023,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       buf.eof = false;
       files++;
       nfiles--;
-      
+
       while (fillbuf (&buf, fp, file))
         {
           struct line *line;
@@ -3049,7 +3054,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           else
             {
               ++ntemps;
-              temp_output = create_temp (&tfp, NULL, buf.used);
+              temp_output = create_temp (&tfp, NULL);
             }
 
           do
