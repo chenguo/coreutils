@@ -2770,14 +2770,20 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
             struct line *const restrict end_hi,
             struct line *restrict dest)
 {
+  /* merge lines until one source is empty */
   while (lo != end_lo && hi != end_hi)
     {
       int cmp = compare (lo - 1, hi - 1);
-      if (cmp >= 0)
+      if (cmp <= 0)
         *--dest = *--lo;
       else
         *--dest = *--hi;
     }
+  /* add the remaining lines from the other source */
+  while (lo != end_lo)
+    *--dest = *--lo;
+  while (hi != end_hi)
+    *--dest = *--hi;
 }
 
 /* Repeatedly completes work in work_units in queue.
