@@ -166,8 +166,8 @@ parameter of any heap function.
 
 struct tuple
 {
-	size_t first;   //the line
-	size_t second;  //the file #
+	void* first;   //the line
+	void* second;  //the file #
 };
 struct heap
 {
@@ -244,7 +244,7 @@ heap_pop(struct heap* aHeap)
 	
 	int loc=0;
 	//store the root that will be popped
-	size_t temp=((struct tuple*)(aHeap->heapArray[0]))->second;
+	size_t temp=(size_t)((struct tuple*)(aHeap->heapArray[0]))->second;
 	free(((void*)(aHeap->heapArray[0])));
 	//decrement item #
 	aHeap->nitems=aHeap->nitems-1;
@@ -280,7 +280,7 @@ heap_peek(struct heap* aHeap)
 {
 	if(aHeap && aHeap->heapArray)
 	{
-		return (size_t)(aHeap->heapArray[0]);
+		return aHeap->heapArray[0];
 	}
 	return -1;
 }
@@ -2595,10 +2595,12 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	for (i = 0; i < nfiles; i++)
 	{
 		temp_tuple = malloc(sizeof(struct tuple));
-		temp_tuple->first = (size_t)cur[i];
-		temp_tuple->second = i;
+		temp_tuple->first = (void*)cur[i];
+		temp_tuple->second = (void*)i;
 		heap_push(&fileSort, temp_tuple);
 	}
+        if(ord[0])
+          free(&ord[0]);
 	ord[0] = heap_pop(&fileSort);
 	
 	
@@ -2706,15 +2708,17 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	     
              /* for (i = 0; i < nfiles; ++i)
                 ord[i] = ord[i + 1];*/
-		fileSort.nitems=0;
-	for (i = 0; i < nfiles; i++)
-	{
-		temp_tuple = malloc(sizeof(struct tuple));
-		temp_tuple->first = (size_t)cur[i];
-		temp_tuple->second = i;
-		heap_push(&fileSort, temp_tuple);
-	}
-		ord[0]=heap_pop(&fileSort);
+	      fileSort.nitems=0;
+              for (i = 0; i < nfiles; i++)
+                {
+                  temp_tuple = malloc(sizeof(struct tuple));
+                  temp_tuple->first = (void*)cur[i];
+                  temp_tuple->second = (void*)i;
+                  heap_push(&fileSort, temp_tuple);
+                }
+              if(ord[0])
+                free(&ord[0]);
+              ord[0]=heap_pop(&fileSort);
               continue;
             }
         }
@@ -2746,12 +2750,15 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
         ord[count_of_smaller_lines] = ord0;*/
 	//printf("AAAAGH\n");
 	//if(base[ord[0]] < cur[ord[0]])
-	{		struct tuple* temp=malloc(sizeof(struct tuple));
-			temp->first=(size_t)cur[ord[0]];
-			temp->second=ord[0];	
-			heap_push(&fileSort, temp);
+	{
+          struct tuple* temp=malloc(sizeof(struct tuple));
+          temp->first=(void*)cur[ord[0]];
+          temp->second=(void*)ord[0];	
+          heap_push(&fileSort, temp);
 	}
-		ord[0]=heap_pop(&fileSort);
+          if(ord[0])
+            free(&ord[0]);
+          ord[0]=heap_pop(&fileSort);
 	//printf("ENDAGGH\n");
       }
 
@@ -2770,6 +2777,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   xfclose (ofp, output_file);
   free(fps);
   free(buffer);
+  free(&ord[0]);
   free(ord);
   free(base);
   free(cur);
