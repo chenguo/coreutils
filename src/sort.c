@@ -2813,7 +2813,8 @@ update_parent (struct work_unit *const restrict parent,
   unlock_work_unit (parent);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
-  if (nlo && nhi && (nlo + nhi > total / (10 * level)))
+  if (parent->level == 0
+      || (nlo && nhi && (nlo + nhi > total / (10 * level))))
     queue_insert (NULL, parent);
 }
 
@@ -2874,31 +2875,25 @@ do_work (void *nothing)
 
       lock_work_unit (work);
       work->nlines -= merged_lines;
+      /* If the top level finished: */
+      if (work->nlines == 0 && work->level == 1)
+        {
+          
+        }
       size_t nlines = work->nlines;
       struct line **const parent_end = work->parent_end;
       struct work_unit *const parent = work->parent;
       unlock_work_unit (work);
 
-      if (parent)
-        update_parent (parent, parent_end, nlines);
-      else if (nlines == 0)
-        {
-          /* Push dummy... What should dummy be? */
-          /* IDEA: EOF declared in sort ().
-             1. Has legit total_lines value. This saves an argument to sortlines.
-             2. NULL all pointers in it. This way the dest - source check
-                always fails, and it never gets inserted.
-             3. This also provides an elegant way of destroying EOF: it's simply
-                gone when sort () returns. */
-        }
+      update_parent (parent, parent_end, nlines);
     }
   return NULL;
 }
 
 
 static void sortlines (struct line *restrict, struct line *restrict,
-                       unsigned long int, size_t, size_t const,
-                       struct work_unit *restrict, struct line **restrict);
+                       unsigned long int, size_t, struct work_unit *restrict,
+                       struct line **restrict);
  
 /* Thread arguments for sortlines_thread. */
 struct thread_args
@@ -2907,7 +2902,6 @@ struct thread_args
   struct line *dest;
   unsigned long int nthreads;
   size_t nlines;
-  size_t total_lines;
   struct work_unit *parent;
   struct line **parent_end;
 };
@@ -2918,13 +2912,13 @@ sortlines_thread (void *data)
 {
   struct thread_args const *args = data;
   sortlines (args->lines, args->dest, args->nthreads, args->nlines,
-             args->total_lines, args->parent, args->parent_end);
+             args->parent, args->parent_end);
   return NULL;
 }
 
 static void
 sortlines (struct line *restrict lines, struct line *restrict dest,
-           unsigned long int nthreads, size_t nlines, size_t const total_lines,
+           unsigned long int nthreads, size_t nlines,
            struct work_unit *const restrict parent,
            struct line **const restrict parent_end)
 {
@@ -2963,14 +2957,14 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       pthread_spinlock_t lock;
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
       struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlines,
-                               total_lines, level, parent, &lock};
+                               parent->total_lines, level, parent, &lock};
 
       /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
       unsigned long int my_subthreads = nthreads - child_subthreads;
       pthread_t thread;
       struct thread_args args = {lines - nlo, hi, child_subthreads, nhi,
-                                 total_lines, &work, &work.end_hi};
+                                 &work, &work.end_hi};
 
       if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
           && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
@@ -2978,8 +2972,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
           /* Guarantee that nlo and nhi are each at least 2.  */
           verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-          sortlines (lines, lo, my_subthreads, nlo, total_lines, &work,
-                     &work.end_lo);
+          sortlines (lines, lo, my_subthreads, nlo, &work, &work.end_lo);
           pthread_join (thread, NULL);
         }
       else
@@ -3253,7 +3246,11 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
-            sortlines (line, linebase, nthreads, buf.nlines, buf.nlines, NULL, NULL);
+            {
+              struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
+              buf.nlines, NULL, NULL);
+              sortlines (line, linebase, nthreads, buf.nlines, &work, NULL);
+            }
           if (buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
