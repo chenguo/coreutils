@@ -179,6 +179,7 @@ gdsl_heap_get_name (const gdsl_heap_t heap)
 
     return heap->name;
 }
+#endif
 
 extern ulong
 gdsl_heap_get_size (const gdsl_heap_t heap)
@@ -187,7 +188,6 @@ gdsl_heap_get_size (const gdsl_heap_t heap)
 
     return heap->card;
 }
-#endif
 
 extern gdsl_element_t
 gdsl_heap_get_top (const gdsl_heap_t heap)
