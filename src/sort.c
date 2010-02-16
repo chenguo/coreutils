@@ -3694,6 +3694,7 @@ main (int argc, char **argv)
 
   if (nfiles != 0)
     free (files);
+  free (temp_dirs);
 
   if (have_read_stdin && fclose (stdin) == EOF)
     die (_("close failed"), "-");
