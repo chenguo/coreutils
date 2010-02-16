@@ -2734,6 +2734,12 @@ static inline void
 queue_insert (struct work_unit_queue *const restrict queue,
               struct work_unit *const restrict work)
 {
+  pthread_mutex_lock (&merge_queue.mutex);
+#if CS130_USE_GDSL_HEAP==1
+  if (!gdsl_heap_is_empty (merge_queue.priority_queue))
+    gdsl_heap_insert (merge_queue.priority_queue, (void *) work);
+#endif
+  pthread_mutex_unlock (&merge_queue.mutex);
 }
 
 /* Delete top element of priority queue. */
