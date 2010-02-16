@@ -14,8 +14,9 @@ sortlines ():
   Handle transition from multithreaded to singlethreaded case (DONE: Chen)
   Add infinite job-doing loop (in progress: Gene)
 
-New merge function:
-  Take as arguments src1, src2, n1, n2, dest.
+New merge function (merge_work):
+  Take as arguments src1, src2, n1, n2, dest. (DONE: Mike)
+  Test that it has same functionality as old mergelines. (DONE: Mike)
 
 sortlines_thread ():
   Modify to satisfy new arguments. (DONE: Chen)
