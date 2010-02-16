@@ -1147,6 +1147,17 @@ inittables (void)
 #endif
 }
 
+static void
+freetables (void)
+{
+#if HAVE_NL_LANGINFO
+  size_t i;
+  if (hard_LC_TIME)
+    for (i = 0; i < MONTHS_PER_YEAR; i++)
+      free (monthtab[i].name);
+#endif
+}
+
 /* Specify how many inputs may be merged at once.
    This may be set on the command-line with the
    --batch-size option. */
@@ -3695,6 +3706,7 @@ main (int argc, char **argv)
   if (nfiles != 0)
     free (files);
   free (temp_dirs);
+  freetables ();
 
   if (have_read_stdin && fclose (stdin) == EOF)
     die (_("close failed"), "-");
