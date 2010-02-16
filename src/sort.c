@@ -20,6 +20,9 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
+#define genedebug 1
+#define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
+
 #include <config.h>
 
 #include <getopt.h>
@@ -2736,8 +2739,7 @@ queue_insert (struct work_unit_queue *const restrict queue,
 {
   pthread_mutex_lock (&merge_queue.mutex);
 #if CS130_USE_GDSL_HEAP==1
-  if (!gdsl_heap_is_empty (merge_queue.priority_queue))
-    gdsl_heap_insert (merge_queue.priority_queue, (void *) work);
+  gdsl_heap_insert (merge_queue.priority_queue, (void *) work);
 #endif
   pthread_mutex_unlock (&merge_queue.mutex);
 }
@@ -2862,6 +2864,8 @@ do_work (void *nothing)
       */
       /* TODO: replace NULL pointers with queue pointer. */
       struct work_unit *work = queue_pop (&merge_queue);
+      if (!work)
+        ; //XXX do error checking. Can take out if we're optimising
       lock_work_unit (work);
       if (work->level == 0)
         {
