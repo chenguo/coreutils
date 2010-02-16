@@ -2956,7 +2956,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       /* Create work unit. */
       size_t nlo = nlines / 2;
       size_t nhi = nlines - nlo;
-      struct line *lo = dest - total_lines;
+      struct line *lo = dest - parent->total_lines;
       struct line *hi = lo - nlo;
       size_t level = (parent)? parent->level + 1 : 0;
       pthread_spinlock_t lock;
@@ -3253,7 +3253,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           if (1 < buf.nlines)
             {
               struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-              buf.nlines, NULL, NULL);
+              buf.nlines, 0, NULL, NULL};
               sortlines (line, linebase, nthreads, buf.nlines, &work, NULL);
             }
           if (buf.eof && !nfiles && !ntemps && !buf.left)
