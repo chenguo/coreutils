@@ -20,7 +20,7 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
-#define genedebug 1
+#define genedebug 0
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
 #include <config.h>
@@ -2877,9 +2877,9 @@ do_work (void *nothing)
       struct work_unit *work = queue_pop (&merge_queue);
       if (!work)
         ; //XXX do error checking. Can take out if we're optimising
-      geneprintf("work is %p\n", work);
+      geneprintf("in while(1) loop. work is %p\n", work);
       lock_work_unit (work);
-      geneprintf("work unit locked at %d. work->level==%d, work->parent==%p, work->parent->lock==%p\n", __LINE__, work->level, work->parent, work->parent->lock);
+      geneprintf("work unit locked at %d. work->level==%d, work->parent==%p, work->parent->lock==%p\n", __LINE__, work->level, work->parent, work->parent?work->parent->lock:NULL);
       if (work->level == 0)
         {
       geneprintf("work->level==0 at %d\n", __LINE__);
@@ -2892,14 +2892,14 @@ do_work (void *nothing)
       struct line *end_lo = work->end_lo;
       struct line *end_hi = work->end_hi;
       struct line *dest = work->dest;
-      //geneprintf("XXX %d\n", __LINE__);
+      geneprintf("XXX %d\n", __LINE__);
       unlock_work_unit (work);
-      //geneprintf("XXX %d\n", __LINE__);
+      geneprintf("XXX %d\n", __LINE__);
 
       size_t merged_lines = end_hi - hi + end_lo - lo;
-      //geneprintf("XXX %d\n", __LINE__);
+      geneprintf("XXX %d\n", __LINE__);
       merge_work (lo, hi, end_lo, end_hi, dest);
-      //geneprintf("XXX %d\n", __LINE__);
+      geneprintf("XXX %d\n", __LINE__);
 
       lock_work_unit (work);
       geneprintf("XXX %d\n", __LINE__);
@@ -2909,7 +2909,7 @@ do_work (void *nothing)
         {
           
         }
-      //geneprintf("XXX %d\n", __LINE__);
+      geneprintf("XXX %d\n", __LINE__);
       size_t nlines = work->nlines;
       struct line **const parent_end = work->parent_end;
       struct work_unit *const parent = work->parent;
