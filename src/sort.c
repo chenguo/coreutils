@@ -100,6 +100,18 @@ enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 # define DEFAULT_TMPDIR "/tmp"
 #endif
 
+#define CS130_USE_GDSL_HEAP 1
+#if CS130_USE_GDSL_HEAP==1
+#include "gdsl_heap_standalone.c"
+
+struct work_unit_queue
+{
+  gdsl_heap_t priority_queue;
+  pthread_mutex_t mutex;
+};
+static struct work_unit_queue merge_queue;
+#endif
+
 /* Exit statuses.  */
 enum
   {
@@ -2698,17 +2710,42 @@ mergesort (struct line *restrict lines, size_t nlines,
     }
 }
 
+/* Compare function for gdsl heap */
+static long int
+compare_work_units (gdsl_element_t wu1, void *wu2)
+{
+  if (((struct work_unit *) wu1)->level == ((struct work_unit *) wu2)->level)
+    return ((struct work_unit *) wu1)->nlines < ((struct work_unit *) wu2)->nlines;
+  return ((struct work_unit *) wu1)->level < ((struct work_unit *) wu2)->level;
+}
+
+/* Initialize work unit priority queue. */
+static inline void
+queue_init (struct work_unit_queue *const restrict queue)
+{
+#if CS130_USE_GDSL_HEAP==1
+  queue->priority_queue = gdsl_heap_alloc("wu_pq", NULL, NULL, compare_work_units);
+#endif
+  pthread_mutex_init (&queue->mutex, NULL);  //XXX by Gene: untested
+}
+
 /* Insert work unit into priority queue. */
 static inline void
-queue_insert (void *const restrict queue,
+queue_insert (struct work_unit_queue *const restrict queue,
               struct work_unit *const restrict work)
 {
 }
 
 /* Delete top element of priority queue. */
 static inline void
-queue_delete_top (void *const restrict queue)
+queue_delete_top (struct work_unit_queue *const restrict queue)
 {
+  pthread_mutex_lock (&merge_queue.mutex);
+#if CS130_USE_GDSL_HEAP==1
+  if (!gdsl_heap_is_empty (merge_queue.priority_queue))
+    gdsl_heap_delete_top (merge_queue.priority_queue);
+#endif
+  pthread_mutex_unlock (&merge_queue.mutex);
 }
 
 /* Return top work_unit off priority queue. */
@@ -2716,18 +2753,30 @@ queue_delete_top (void *const restrict queue)
      make sense to not use this, and if EOF is popped, just insert it
      again? At that point EOF would be the only element, so it'd be O(1)
      to insert. */
+/* to CHEN: yea that's doable but I think the logic for this should be in the
+ *   do_work() loop, inserting a EOF would take O(1) from there as well,
+ *   just less wrapping around the heap's insert call. */
 static inline struct work_unit *
-queue_top (void *const restrict queue)
+queue_top (struct work_unit_queue *const restrict queue)
 {
-  return NULL;
+  struct work_unit *ret = NULL;
+
+  pthread_mutex_lock (&merge_queue.mutex);
+#if CS130_USE_GDSL_HEAP==1
+  if (!gdsl_heap_is_empty (merge_queue.priority_queue))
+    ret = (struct work_unit *) gdsl_heap_get_top (merge_queue.priority_queue);
+#endif
+
+  pthread_mutex_unlock (&merge_queue.mutex);
+  return ret;
 }
 
 /* Pop top work unit off priority queue. */
 static inline struct work_unit *
-queue_pop (void *const restrict queue)
+queue_pop (struct work_unit_queue *const restrict queue)
 {
-  struct work_unit *ret = queue_top(queue);
-  queue_delete_top (queue);
+  struct work_unit *ret = queue_top (&merge_queue);
+  queue_delete_top (&merge_queue);
   return ret;
 }
 
@@ -2799,7 +2848,7 @@ do_work (void *nothing)
             If parent is top level, and finished, push EOF.
       */
       /* TODO: replace NULL pointers with queue pointer. */
-      struct work_unit *work = queue_pop (NULL);
+      struct work_unit *work = queue_pop (&merge_queue);
       lock_work_unit (work);
       struct line *lo = work->lo;
       struct line *hi = work->hi;
@@ -3998,6 +4047,8 @@ main (int argc, char **argv)
           unsigned long int np2 = num_processors (NPROC_ALL) / 2;
           for (nthreads = 1; nthreads <= np2; nthreads *= 2)
             continue;
+
+          queue_init (&merge_queue);
         }
 
       sort (files, nfiles, outfile, nthreads);
