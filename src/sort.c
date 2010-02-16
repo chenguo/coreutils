@@ -2775,7 +2775,6 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   xfclose (ofp, output_file);
   free(fps);
   free(buffer);
-  free(&ord[0]);
   free(ord);
   free(base);
   free(cur);
@@ -3510,9 +3509,9 @@ main (int argc, char **argv)
 #ifdef SIGPOLL
         SIGPOLL,
 #endif
-#ifdef SIGPROF
-        SIGPROF,
-#endif
+//#ifdef SIGPROF
+//        SIGPROF,
+//#endif
 #ifdef SIGVTALRM
         SIGVTALRM,
 #endif
