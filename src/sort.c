@@ -20,7 +20,6 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
-/* dummy comment */
 #define genedebug 1
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
