@@ -20,8 +20,11 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
-#define genedebug 1
+#define genedebug 0
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
+
+#define chendebug 0
+#define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #include <config.h>
 
@@ -110,7 +113,8 @@ enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 struct work_unit_queue
 {
   gdsl_heap_t priority_queue;
-  pthread_mutex_t mutex;
+//  pthread_mutex_t mutex;
+pthread_spinlock_t lock;
 };
 static struct work_unit_queue merge_queue;
 #endif
@@ -2710,12 +2714,6 @@ mergesort (struct line *restrict lines, size_t nlines,
           sorted_lo = temp;
         }
       mergelines (dest, nlines, sorted_lo);
-int z;
-for (z = 1; z <= nlines; z++)
-  geneprintf ("%c ", (dest-z)->text[0]);
-geneprintf ("\n");
-
-
     }
 }
 
@@ -2735,7 +2733,8 @@ queue_init (struct work_unit_queue *const restrict queue)
 #if CS130_USE_GDSL_HEAP==1
   queue->priority_queue = gdsl_heap_alloc("wu_pq", NULL, NULL, compare_work_units);
 #endif
-  pthread_mutex_init (&queue->mutex, NULL);  //XXX by Gene: untested
+//  pthread_mutex_init (&queue->mutex, NULL);  //XXX by Gene: untested
+pthread_spin_init (&queue->lock, PTHREAD_PROCESS_PRIVATE);
 }
 
 /* Insert work unit into priority queue. */
@@ -2743,24 +2742,27 @@ static inline void
 queue_insert (struct work_unit_queue *const restrict queue,
               struct work_unit *const restrict work)
 {
-  pthread_mutex_lock (&merge_queue.mutex);
+chenprintf ("INSERT: work unit level %u\n", work->level);
+//  pthread_mutex_lock (&merge_queue.mutex);
+pthread_spin_lock (&queue->lock);
 #if CS130_USE_GDSL_HEAP==1
   gdsl_heap_insert (merge_queue.priority_queue, (void *) work);
   geneprintf("in queue_insert: inserted work==%p, heapsize len==%d\n", work, gdsl_heap_get_size (merge_queue.priority_queue));
 #endif
-  pthread_mutex_unlock (&merge_queue.mutex);
+//  pthread_mutex_unlock (&merge_queue.mutex);
+pthread_spin_unlock (&queue->lock);
 }
 
 /* Delete top element of priority queue. */
 static inline void
 queue_delete_top (struct work_unit_queue *const restrict queue)
 {
-  pthread_mutex_lock (&merge_queue.mutex);
+//  pthread_mutex_lock (&merge_queue.mutex);
 #if CS130_USE_GDSL_HEAP==1
   if (!gdsl_heap_is_empty (merge_queue.priority_queue))
     gdsl_heap_delete_top (merge_queue.priority_queue);
 #endif
-  pthread_mutex_unlock (&merge_queue.mutex);
+//  pthread_mutex_unlock (&merge_queue.mutex);
 }
 
 /* Return top work_unit off priority queue. */
@@ -2776,13 +2778,13 @@ queue_top (struct work_unit_queue *const restrict queue)
 {
   struct work_unit *ret = NULL;
 
-  pthread_mutex_lock (&merge_queue.mutex);
+//  pthread_mutex_lock (&merge_queue.mutex);
 #if CS130_USE_GDSL_HEAP==1
   if (!gdsl_heap_is_empty (merge_queue.priority_queue))
     ret = (struct work_unit *) gdsl_heap_get_top (merge_queue.priority_queue);
 #endif
 
-  pthread_mutex_unlock (&merge_queue.mutex);
+//  pthread_mutex_unlock (&merge_queue.mutex);
   return ret;
 }
 
@@ -2790,8 +2792,17 @@ queue_top (struct work_unit_queue *const restrict queue)
 static inline struct work_unit *
 queue_pop (struct work_unit_queue *const restrict queue)
 {
-  struct work_unit *ret = queue_top (&merge_queue);
-  queue_delete_top (&merge_queue);
+//  pthread_mutex_lock (&merge_queue.mutex);
+pthread_spin_lock (&queue->lock);
+  struct work_unit *ret = NULL;
+#if CS130_USE_GDSL_HEAP==1
+//  if (!gdsl_heap_is_empty (merge_queue.priority_queue))
+    ret = (struct work_unit *) gdsl_heap_get_top (merge_queue.priority_queue);
+    gdsl_heap_delete_top (merge_queue.priority_queue);
+#endif
+//  pthread_mutex_unlock (&merge_queue.mutex);
+pthread_spin_unlock (&queue->lock);
+//  if (ret) chenprintf ("POP: work unit level %u\n", ret->level);
   return ret;
 }
 
@@ -2810,33 +2821,31 @@ unlock_work_unit (struct work_unit *const restrict work)
 
 static inline void
 update_parent (struct work_unit *const restrict parent,
-               struct line **const restrict parent_end,
+               struct line **restrict parent_end,
                size_t nlines)
 {
   geneprintf("in update_parent at %d\n", __LINE__);
   geneprintf("\tparent is %p\n", parent);
+
+chenprintf ("IN UPDATE PARENT: level %u, child1 %u child2 %u\n", parent->level, &parent->end_lo, &parent->end_hi);
   lock_work_unit (parent);
-  //geneprintf("XXX %d\n", __LINE__);
-  if (parent_end)
-{
-geneprintf("parent level: %u\n", parent->level);
-    *parent_end += nlines;
-} 
- //geneprintf("XXX %d\n", __LINE__);
+  geneprintf("XXX %d\n", __LINE__);
+  *parent_end = *parent_end - nlines;
+
+  geneprintf("XXX %d\n", __LINE__);
   size_t level = parent->level;
-  size_t nlo = parent->end_lo - parent->lo;
-  size_t nhi = parent->end_hi - parent->hi;
+  size_t nlo = parent->lo - parent->end_lo;
+  size_t nhi = parent->hi - parent->end_hi;
   size_t total = parent->total_lines;
   unlock_work_unit (parent);
-  //geneprintf("XXX %d\n", __LINE__);
+  geneprintf("XXX %d\n", __LINE__);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
-  if ((level == 0 && nlines == 0)
-      || (nlo && nhi && (nlo + nhi > total / (10 * level))))
+chenprintf ("UPDATE PARENT: nlo %u nhi %u total %u level %u\n", nlo, nhi, total, level);
+  if (nlo && nhi && (nlo + nhi > total / (10 * level)))
     {
       /* If the top level finished: */
-      if (level == 0)
-        geneprintf ("********** DONE *************\n");
+      chenprintf ("Parent Pushed.\n");
       queue_insert (&merge_queue, parent);
       geneprintf("XXX %d\n", __LINE__);
     }
@@ -2885,13 +2894,17 @@ do_work (void *nothing)
          6. If parent has work, push parent.
             If parent is top level, and finished, push EOF.
       */
-      /* TODO: replace NULL pointers with queue pointer. */
       struct work_unit *work = queue_pop (&merge_queue);
+
+      /* XXX: Maybe do someting more efficient than this. */
       if (!work)
-        ; //XXX do error checking. Can take out if we're optimising
+        continue; //XXX do error checking. Can take out if we're optimising
+
       geneprintf("in while(1) loop. work is %p\n", work);
       lock_work_unit (work);
       geneprintf("work unit locked at %d. work->level==%d, work->parent==%p, work->parent->lock==%p\n", __LINE__, work->level, work->parent, work->parent?work->parent->lock:NULL);
+ chenprintf ("DO WORK: pulled work unit level %u, total lines %u\n", work->level, work->total_lines);
+
       if (work->level == 0)
         {
       geneprintf("work->level==0 at %d\n", __LINE__);
@@ -2908,35 +2921,42 @@ do_work (void *nothing)
       unlock_work_unit (work);
       geneprintf("XXX %d\n", __LINE__);
 
-      size_t merged_lines = hi - end_hi + lo - end_lo;
-int z;
-struct line *tmp1 = lo;
-struct line *tmp2 = hi;
-geneprintf ("IN DO WORK: ");
-do
-  geneprintf ("%c ", (tmp1-1)->text[0]);  
-while (--tmp1 != end_lo);
-geneprintf ("\n");
-
+      size_t nlo = lo - end_lo;
+      size_t nhi = hi - end_hi;
+      size_t merged_lines = nlo + nhi;
 
 geneprintf ("   merge_lines %u, lo %u, hi %u, end_lo %u, end_hi %u, dest %u\n", merged_lines, lo, hi, end_lo, end_hi, dest);
+chenprintf ("   merge_lines %u, lo %u, hi %u, end_lo %u, end_hi %u, dest %u\n", merged_lines, lo, hi, end_lo, end_hi, dest);
       geneprintf("XXX %d\n", __LINE__);
       merge_work (lo, hi, end_lo, end_hi, dest);
       geneprintf("XXX %d\n", __LINE__);
+/*int z;
+chenprintf ("IN DO WORK: ");
+for (z = 1; z <= merged_lines; z++)
+  chenprintf ("%c ", (dest-z)->text[0]);  
+chenprintf ("\n");
+*/
 
       lock_work_unit (work);
       geneprintf("XXX %d\n", __LINE__);
       work->nlines -= merged_lines;
       work->dest -= merged_lines;
+      work->lo -= nlo;
+      work->hi -= nhi;
       geneprintf("XXX %d\n", __LINE__);
       size_t nlines = work->nlines;
+      size_t level = work->level;
       struct line **const parent_end = work->parent_end;
       struct work_unit *const parent = work->parent;
       geneprintf("XXX %d\n", __LINE__);
       unlock_work_unit (work);
       geneprintf("XXX %d\n", __LINE__);
 
-      update_parent (parent, parent_end, nlines);
+      if (nlines != 0 || level > 1)
+        update_parent (parent, parent_end, merged_lines);
+      else // {chenprintf ("Pushing EOF, parent level %u, total lines %u\n", parent->level, parent->total_lines);
+        queue_insert (&merge_queue, parent);
+       // chenprintf ("EOF pushed, exiting.\n");}
       geneprintf("XXX %d\n", __LINE__);
     }
   return NULL;
@@ -3011,6 +3031,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
       struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlines,
                                parent->total_lines, level, parent, &lock};
+chenprintf ("SORTLINES: create lvl %u, child1 %u, child2 %u\n", level, &work.end_lo, &work.end_hi);
 
       /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
