@@ -3692,6 +3692,9 @@ main (int argc, char **argv)
   else
     sort (files, nfiles, outfile);
 
+  if (nfiles != 0)
+    free (files);
+
   if (have_read_stdin && fclose (stdin) == EOF)
     die (_("close failed"), "-");
 
