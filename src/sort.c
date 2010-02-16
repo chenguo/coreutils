@@ -20,7 +20,7 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
-#define genedebug 0
+#define genedebug 1
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
 #include <config.h>
@@ -2710,6 +2710,12 @@ mergesort (struct line *restrict lines, size_t nlines,
           sorted_lo = temp;
         }
       mergelines (dest, nlines, sorted_lo);
+int z;
+for (z = 1; z <= nlines; z++)
+  geneprintf ("%c ", (dest-z)->text[0]);
+geneprintf ("\n");
+
+
     }
 }
 
@@ -2812,8 +2818,11 @@ update_parent (struct work_unit *const restrict parent,
   lock_work_unit (parent);
   //geneprintf("XXX %d\n", __LINE__);
   if (parent_end)
+{
+geneprintf("parent level: %u\n", parent->level);
     *parent_end += nlines;
-  //geneprintf("XXX %d\n", __LINE__);
+} 
+ //geneprintf("XXX %d\n", __LINE__);
   size_t level = parent->level;
   size_t nlo = parent->end_lo - parent->lo;
   size_t nhi = parent->end_hi - parent->hi;
@@ -2822,9 +2831,12 @@ update_parent (struct work_unit *const restrict parent,
   //geneprintf("XXX %d\n", __LINE__);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
-  if (level == 0
+  if ((level == 0 && nlines == 0)
       || (nlo && nhi && (nlo + nhi > total / (10 * level))))
     {
+      /* If the top level finished: */
+      if (level == 0)
+        geneprintf ("********** DONE *************\n");
       queue_insert (&merge_queue, parent);
       geneprintf("XXX %d\n", __LINE__);
     }
@@ -2896,7 +2908,18 @@ do_work (void *nothing)
       unlock_work_unit (work);
       geneprintf("XXX %d\n", __LINE__);
 
-      size_t merged_lines = end_hi - hi + end_lo - lo;
+      size_t merged_lines = hi - end_hi + lo - end_lo;
+int z;
+struct line *tmp1 = lo;
+struct line *tmp2 = hi;
+geneprintf ("IN DO WORK: ");
+do
+  geneprintf ("%c ", (tmp1-1)->text[0]);  
+while (--tmp1 != end_lo);
+geneprintf ("\n");
+
+
+geneprintf ("   merge_lines %u, lo %u, hi %u, end_lo %u, end_hi %u, dest %u\n", merged_lines, lo, hi, end_lo, end_hi, dest);
       geneprintf("XXX %d\n", __LINE__);
       merge_work (lo, hi, end_lo, end_hi, dest);
       geneprintf("XXX %d\n", __LINE__);
@@ -2904,11 +2927,7 @@ do_work (void *nothing)
       lock_work_unit (work);
       geneprintf("XXX %d\n", __LINE__);
       work->nlines -= merged_lines;
-      /* If the top level finished: */
-      if (work->nlines == 0 && work->level == 1)
-        {
-          
-        }
+      work->dest -= merged_lines;
       geneprintf("XXX %d\n", __LINE__);
       size_t nlines = work->nlines;
       struct line **const parent_end = work->parent_end;
@@ -2985,7 +3004,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       size_t nhi = nlines - nlo;
       struct line *lo = dest - parent->total_lines;
       struct line *hi = lo - nlo;
-      size_t level = (parent)? parent->level + 1 : 0;
+      size_t level = parent->level + 1;
   geneprintf("XXX\tparent==%p\n", parent);
   geneprintf("XXX\tlevel==%d\n", level);
       pthread_spinlock_t lock;
@@ -3028,6 +3047,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
   geneprintf("XXX\tqueue len==%d\n", gdsl_heap_get_size (merge_queue.priority_queue));
   geneprintf("inserted work==%p into pq. work->lock is %p\n", &work, &work.lock);
           do_work (NULL);
+
         }
 
     }
@@ -3297,8 +3317,8 @@ sort (char * const *files, size_t nfiles, char const *output_file,
             {
               pthread_spinlock_t lock;
               pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
-              struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-              buf.nlines, 0, NULL, &lock};
+              struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL,
+                                       buf.nlines, buf.nlines, 0, NULL, &lock};
               sortlines (line, linebase, nthreads, buf.nlines, &work, NULL);
             }
           if (buf.eof && !nfiles && !ntemps && !buf.left)
@@ -3317,13 +3337,13 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           /* TODO: refactor output to top level merge. */
           do
             {
-              line--;
-              write_bytes (line->text, line->length, tfp, temp_output);
+              linebase--;
+              write_bytes (linebase->text, linebase->length, tfp, temp_output);
               if (unique)
-                while (linebase < line && compare (line, line - 1) == 0)
-                  line--;
+                while (compare (linebase, linebase - 1) == 0 && --buf.nlines > 1)
+                  linebase--;
             }
-          while (linebase < line);
+          while (--buf.nlines);
 
           xfclose (tfp, temp_output);
 
