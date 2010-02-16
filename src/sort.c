@@ -2815,7 +2815,7 @@ update_parent (struct work_unit *const restrict parent,
   /* TODO: refactor the 10 to a constant, maybe a define. */
   if (parent->level == 0
       || (nlo && nhi && (nlo + nhi > total / (10 * level))))
-    queue_insert (NULL, parent);
+    queue_insert (&merge_queue, parent);
 }
 
 /* Merge into DEST sorted input from LO and HI, up until and including last
@@ -2863,6 +2863,12 @@ do_work (void *nothing)
       /* TODO: replace NULL pointers with queue pointer. */
       struct work_unit *work = queue_pop (&merge_queue);
       lock_work_unit (work);
+      if (work->level == 0)
+        {
+          unlock_work_unit (work);
+          queue_insert (&merge_queue, work);
+          return NULL;
+        }
       struct line *lo = work->lo;
       struct line *hi = work->hi;
       struct line *end_lo = work->end_lo;
@@ -2929,8 +2935,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       dest[-1] = lines[-1 - swap];
       dest[-2] = lines[-2 + swap];
 
-      if (parent)
-        update_parent (parent, parent_end, nlines);
+      update_parent (parent, parent_end, nlines);
 
       /* Spin off threads to do work. */
       pthread_t *threads;
@@ -2989,7 +2994,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
           work.end_hi = hi - nhi;
 
           /* Push work unit, initiate loop. */
-          queue_insert (NULL, &work);
+          queue_insert (&merge_queue, &work);
           do_work (NULL);
         }
 
