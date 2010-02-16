@@ -3253,10 +3253,19 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
       /* If singlethreaded, the merge uses the memory optimization
          suggested in Knuth exercise 5.2.4-10; see sortlines.  */
-      /* TODO: Update to [log (P) + 1] * sizeof (struct line) */
-      size_t bytes_per_line = (2 * sizeof (struct line)
-                               - (1 < nthreads ? 0 : sizeof (struct line) / 2));
-
+      size_t bytes_per_line;
+      {
+        /* Get log P + 1. */
+        unsigned long int tmp = 1;
+        size_t mult = 2;
+        while (tmp < nthreads)
+          {
+            tmp *= 2;
+            mult++;
+          }
+        bytes_per_line = (mult * sizeof (struct line));
+      }
+                               
       if (! buf.alloc)
         initbuf (&buf, bytes_per_line,
                  sort_buffer_size (&fp, 1, files, nfiles, bytes_per_line));
