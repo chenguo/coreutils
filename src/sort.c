@@ -3242,6 +3242,8 @@ sort (char * const *files, size_t nfiles, char const *output_file,
   size_t ntemps = 0;
   bool output_file_created = false;
 
+  queue_init (&merge_queue);
+
   buf.alloc = 0;
 
   while (nfiles)
@@ -4104,10 +4106,9 @@ main (int argc, char **argv)
           unsigned long int np2 = num_processors (NPROC_ALL) / 2;
           for (nthreads = 1; nthreads <= np2; nthreads *= 2)
             continue;
-
-          queue_init (&merge_queue);
         }
 
+      geneprintf("nthreads==%d\n",nthreads);
       sort (files, nfiles, outfile, nthreads);
     }
 
