@@ -2942,6 +2942,7 @@ sort_thread (void *data)
 {
   struct sort_thread_args const *args = data;
   sort (args->files, args->nfiles, NULL, args->nthreads, 0);
+  free (args);
   return NULL;
 }
 
@@ -2981,8 +2982,12 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           size_t num_files_left = nfiles - num_files_done;
           size_t nfiles_for_thread = (size_t)fmin (num_files_left, num_files_per_thread);
           
-          struct sort_thread_args args = {&files[num_files_done], nfiles_for_thread, nthreads_for_thread};
-          pthread_create (&thread, NULL, sort_thread, &args);
+          // The thread is responsible for freeing the args
+          struct sort_thread_args *args = (struct sort_thread_args *)malloc (sizeof(struct sort_thread_args));
+          args->files = (files + num_files_done);
+          args->nfiles = nfiles_for_thread;
+          args->nthreads = nthreads_for_thread;
+          pthread_create (&thread, NULL, sort_thread, args);
           
           threads[thread_num] = thread;
           
@@ -3041,7 +3046,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       char const *file = *files;
       FILE *fp = xfopen (file, "r");
       FILE *tfp;
-
+      
       /* If singlethreaded, the merge uses the memory optimization
          suggested in Knuth exercise 5.2.4-10; see sortlines.  */
       size_t bytes_per_line = (2 * sizeof (struct line)
