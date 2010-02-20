@@ -2660,10 +2660,15 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   /*           for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
                   --ord[i];*/
+		
+             for( i =0; i < fileSort.nitems; i++)
+		{
+			if(fileSort.heapArray[i] > ord[0])
+				fileSort.heapArray[i]--;
 
-	     /* for (i=1; i< fileSort.nitems; ++i)
-		if(fileSort.heapArray[i] > ord[0])
-			fileSort.heapArray[i]=(fileSort.heapArray[i])-1;*/
+		//	printf("Poop %d ", fileSort.heapArray[i]);
+		}	
+	//	printf("\n");
 	     /*for(i=1; i<nfiles; ++i)
 		{
 			
@@ -2698,11 +2703,18 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	     
              /* for (i = 0; i < nfiles; ++i)
                 ord[i] = ord[i + 1];*/
-	      fileSort.nitems=0;
-              for (i = 0; i < nfiles; i++)
+	/*	 fileSort.nitems=0;
+		 for (i = 0; i < nfiles; i++)
                 {
                   heap_push(&fileSort, i, cur);
-                }              //if(ord[0])
+	
+                }*/
+/*		for(i=0; i<fileSort.nitems; i++)
+		{
+			printf("poop2 %d ", fileSort.heapArray[i]);
+		}
+		printf("\n");*/
+              //if(ord[0])
                 //free(&ord[0]);
               ord[0]=heap_pop(&fileSort, cur);
               continue;
