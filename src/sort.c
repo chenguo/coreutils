@@ -2660,8 +2660,13 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   /*           for (i = 1; i < nfiles; ++i)
                 if (ord[i] > ord[0])
                   --ord[i];*/
+
+	     /* for (i=1; i< fileSort.nitems; ++i)
+		if(fileSort.heapArray[i] > ord[0])
+			fileSort.heapArray[i]=(fileSort.heapArray[i])-1;*/
 	     /*for(i=1; i<nfiles; ++i)
 		{
+			
 	
 		size_t temp_ord=((struct tuple*)fileSort.heapArray[i])->second;
 		printf("nfiles%d\n", temp_ord);
@@ -2697,8 +2702,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               for (i = 0; i < nfiles; i++)
                 {
                   heap_push(&fileSort, i, cur);
-                }
-              //if(ord[0])
+                }              //if(ord[0])
                 //free(&ord[0]);
               ord[0]=heap_pop(&fileSort, cur);
               continue;
