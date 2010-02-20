@@ -169,141 +169,6 @@ struct tuple
 	void* first;   //the line
 	void* second;  //the file #
 };
-struct heap
-{
-	size_t *heapArray;
-	size_t heapSize;
-	size_t nitems;
-	int (*compare) (const struct tuple*, const struct tuple*);
-};
-
-
-/* Equivalent to a constructor
-	Input parameters:
-		aHeap - a pointer to the heap object
-		compareFunc - pointer to the compare function desired
-		size - the size of the heap to be initialized
-	This will dynamically allocate size space for the heap
-*/
-void
-heap_init(struct heap *aHeap, size_t size, int (*compareFunc)(const struct tuple*, const struct tuple*))
-{
-	if(aHeap)
-	{
-		aHeap->nitems = 0;
-		aHeap->heapSize = size;
-		aHeap->compare = compareFunc;
-		aHeap->heapArray = malloc(size * (sizeof *(aHeap->heapArray)));
-	}
-}
-
-/*do we need a heapify function?
-// Noah - actually, probably not.
-void
-heap_heapify(struct heap* aHeap)
-{
-	return;
-}
-*/
-size_t
-heap_push(struct heap* aHeap, const void* item)
-{
-	/*error checking.  Uncomment if needed as branches take compute time*/
-	if(aHeap->nitems == aHeap->heapSize)
-	{
-		return -1;
-	}
-
-	
-	int loc=aHeap->nitems;
-	//insert new item
-	aHeap->heapArray[loc]=(size_t)item;
-	aHeap->nitems=loc+1;
-	
-	while(loc!=0)
-	{
-		//is new item smaller than parent?
-		if(aHeap->compare((struct tuple*)aHeap->heapArray[loc/2], item) < 0)
-			break;
-		//swap with parent
-		aHeap->heapArray[loc]=aHeap->heapArray[loc/2];
-		aHeap->heapArray[loc/2]=(size_t)item;
-		loc=loc/2;
-	}
-	return 0;
-}
-
-size_t
-heap_pop(struct heap* aHeap)
-{
-//	error checking.  Uncomment if needed as branches take compute time*
-	if(aHeap->nitems == 0)
-	{
-		return -1;
-	}
-	
-	int loc=0;
-	//store the root that will be popped
-	size_t temp=(size_t)((struct tuple*)(aHeap->heapArray[0]))->second;
-	free(((void*)(aHeap->heapArray[0])));
-	//decrement item #
-	aHeap->nitems=aHeap->nitems-1;
-	//take last item and place as new root
-	aHeap->heapArray[0]=aHeap->heapArray[aHeap->nitems];
-	int tloc=loc*2;
-	size_t temp2;
-	//fixing heap
-	while((tloc)<aHeap->nitems)
-	{
-		temp2 = aHeap->heapArray[loc];		
-		//find smaller of two children
-		if((loc*2)+1 < aHeap->nitems && (aHeap->compare((void*)aHeap->heapArray[loc*2], (void*)aHeap->heapArray[loc*2+1]) > 0))
-			tloc=loc*2+1;
-		//is child smaller than parent?
-		if(aHeap->compare((void*)aHeap->heapArray[loc], (void*)aHeap->heapArray[tloc]) > 0)
-		{
-			//swapping child with parent
-			aHeap->heapArray[loc]=aHeap->heapArray[tloc];
-			aHeap->heapArray[tloc]=temp2;
-			loc=tloc;
-			tloc=loc*2;
-		}
-		else
-			break;
-		
-	}
-	return temp;
-}
-
-size_t
-heap_peek(struct heap* aHeap)
-{
-	if(aHeap && aHeap->heapArray)
-	{
-		return aHeap->heapArray[0];
-	}
-	return -1;
-}
-
-
-/*
-	Equivalent to a destructor
-	Input:
-		aHeap - pointer to the heap object
-	Frees up any dynamically allocated memory within the heap
-	Note: Does NOT free the heap object itself! If you want it to do that, uncomment the line of code below...
-*/
-void
-heap_free(struct heap* aHeap)
-{
-	if(aHeap)
-	{
-		free(aHeap->heapArray);
-	//	 free(aHeap);		//Frees the heap object itself
-	}
-}
-
-// XXX End of new heap struct!!
 
 
 /* Input buffers. */
@@ -2274,7 +2139,7 @@ keycompare (const struct line *a, const struct line *b)
   do									\
     {									\
           for (;;)							\
-            {								\
+            {							\
               while (texta < lima && ignore[to_uchar (*texta)])		\
                 ++texta;						\
               while (textb < limb && ignore[to_uchar (*textb)])		\
@@ -2396,14 +2261,138 @@ compare (const struct line *a, const struct line *b)
 
 /* Compare two tuples, using the first item in each tuple. */
 
-static int
-tuple_compare (const struct tuple *a, const struct tuple *b)
+struct heap
 {
-	if(a && b)
-		return compare((const struct line*)a->first,(const struct line*) b->first);
-	else
-		return 0;
+	int *heapArray;
+	size_t heapSize;
+	size_t nitems;
+};
+
+
+/* Equivalent to a constructor
+	Input parameters:
+		aHeap - a pointer to the heap object
+		compareFunc - pointer to the compare function desired
+		size - the size of the heap to be initialized
+	This will dynamically allocate size space for the heap
+*/
+void
+heap_init(struct heap *aHeap, size_t size)
+{
+	if(aHeap)
+	{
+		aHeap->nitems = 0;
+		aHeap->heapSize = size;
+		aHeap->heapArray = malloc(size * (sizeof *(aHeap->heapArray)));
+	}
 }
+
+/*do we need a heapify function?
+// Noah - actually, probably not.
+void
+heap_heapify(struct heap* aHeap)
+{
+	return;
+}
+*/
+size_t
+heap_push(struct heap* aHeap, int item, struct line ** cur)
+{
+	/*error checking.  Uncomment if needed as branches take compute time*/
+	if(aHeap->nitems == aHeap->heapSize)
+	{
+		return -1;
+	}
+
+	
+	int loc=aHeap->nitems;
+	//insert new item
+	aHeap->heapArray[loc]=(size_t)item;
+	aHeap->nitems=loc+1;
+	
+	while(loc!=0)
+	{
+		//is new item smaller than parent?
+		if(compare(cur[aHeap->heapArray[loc/2]], cur[item]) < 0)
+			break;
+		//swap with parent
+		aHeap->heapArray[loc]=aHeap->heapArray[loc/2];
+		aHeap->heapArray[loc/2]=item;
+		loc=loc/2;
+	}
+	return 0;
+}
+
+size_t
+heap_pop(struct heap* aHeap, struct line ** cur)
+{
+//	error checking.  Uncomment if needed as branches take compute time*
+	if(aHeap->nitems == 0)
+	{
+		return -1;
+	}
+	
+	int loc=0;
+	//store the root that will be popped
+	size_t temp=aHeap->heapArray[0];
+	//decrement item #
+	aHeap->nitems=aHeap->nitems-1;
+	//take last item and place as new root
+	aHeap->heapArray[0]=aHeap->heapArray[aHeap->nitems];
+	int tloc=loc*2;
+	size_t temp2;
+	//fixing heap
+	while((tloc)<aHeap->nitems)
+	{
+		temp2 = aHeap->heapArray[loc];		
+		//find smaller of two children
+		if((loc*2)+1 < aHeap->nitems && (compare(cur[aHeap->heapArray[loc*2]], cur[aHeap->heapArray[loc*2+1]]) > 0))
+			tloc=loc*2+1;
+		//is child smaller than parent?
+		if(compare(cur[aHeap->heapArray[loc]], cur[aHeap->heapArray[tloc]]) > 0)
+		{
+			//swapping child with parent
+			aHeap->heapArray[loc]=aHeap->heapArray[tloc];
+			aHeap->heapArray[tloc]=temp2;
+			loc=tloc;
+			tloc=loc*2;
+		}
+		else
+			break;
+		
+	}
+	return temp;
+}
+
+size_t
+heap_peek(struct heap* aHeap)
+{
+	if(aHeap && aHeap->heapArray)
+	{
+		return aHeap->heapArray[0];
+	}
+	return -1;
+}
+
+
+/*
+	Equivalent to a destructor
+	Input:
+		aHeap - pointer to the heap object
+	Frees up any dynamically allocated memory within the heap
+	Note: Does NOT free the heap object itself! If you want it to do that, uncomment the line of code below...
+*/
+void
+heap_free(struct heap* aHeap)
+{
+	if(aHeap)
+	{
+		free(aHeap->heapArray);
+	//	 free(aHeap);		//Frees the heap object itself
+	}
+}
+
+// XXX End of new heap struct!!
 
 /* Check that the lines read from FILE_NAME come in order.  Return
    true if they are in order.  If CHECKONLY == 'c', also print a
@@ -2590,18 +2579,14 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	 //This is so the first element is used by the generic compare function.
 
 	struct heap fileSort;
-	struct tuple* temp_tuple;
-	heap_init(&fileSort, nfiles, tuple_compare);
+	heap_init(&fileSort, nfiles);
 	for (i = 0; i < nfiles; i++)
 	{
-		temp_tuple = malloc(sizeof(struct tuple));
-		temp_tuple->first = (void*)cur[i];
-		temp_tuple->second = (void*)i;
-		heap_push(&fileSort, temp_tuple);
+		heap_push(&fileSort, i, cur);
 	}
         //if(ord[0])
           //free(&ord[0]);
-	ord[0] = heap_pop(&fileSort);
+	ord[0] = heap_pop(&fileSort, cur);
 	
 	
 	
@@ -2711,14 +2696,11 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	      fileSort.nitems=0;
               for (i = 0; i < nfiles; i++)
                 {
-                  temp_tuple = malloc(sizeof(struct tuple));
-                  temp_tuple->first = (void*)cur[i];
-                  temp_tuple->second = (void*)i;
-                  heap_push(&fileSort, temp_tuple);
+                  heap_push(&fileSort, i, cur);
                 }
               //if(ord[0])
                 //free(&ord[0]);
-              ord[0]=heap_pop(&fileSort);
+              ord[0]=heap_pop(&fileSort, cur);
               continue;
             }
         }
@@ -2751,12 +2733,9 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 	//printf("AAAAGH\n");
 	//if(base[ord[0]] < cur[ord[0]])
 	{
-          struct tuple* temp=malloc(sizeof(struct tuple));
-          temp->first=(void*)cur[ord[0]];
-          temp->second=(void*)ord[0];	
-          heap_push(&fileSort, temp);
+          heap_push(&fileSort, ord[0], cur);
 	}
-        ord[0]=heap_pop(&fileSort);
+        ord[0]=heap_pop(&fileSort, cur);
 	//printf("ENDAGGH\n");
       }
 
@@ -3509,9 +3488,9 @@ main (int argc, char **argv)
 #ifdef SIGPOLL
         SIGPOLL,
 #endif
-#ifdef SIGPROF
+/*#ifdef SIGPROF
         SIGPROF,
-#endif
+#endif*/
 #ifdef SIGVTALRM
         SIGVTALRM,
 #endif
