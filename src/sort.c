@@ -2924,12 +2924,111 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
     }
 }
 
-/* Sort NFILES FILES onto OUTPUT_FILE. */
+/* Thread arguments for sortlines_thread. */
+struct sort_thread_args
+{
+  char * const *files;
+  size_t nfiles;
+  unsigned long int nthreads;
+};
 
+static void 
+sort (char * const *files, size_t nfiles, char const *output_file, 
+  unsigned long int nthreads, int should_output);
+
+/* Like sort, except with a signature acceptable to pthread_create.  */
+static void *
+sort_thread (void *data)
+{
+  struct sort_thread_args const *args = data;
+  sort (args->files, args->nfiles, NULL, args->nthreads, 0);
+  return NULL;
+}
+
+/* Sort NFILES FILES onto OUTPUT_FILE. */
 static void
 sort (char * const *files, size_t nfiles, char const *output_file,
-      unsigned long int nthreads)
+      unsigned long int nthreads, int should_output)
 {
+#if HAVE_LIBPTHREAD
+  // If we are allowed to use more threads, we should!
+  if (should_output && nfiles > 1 && nthreads > 1)
+    {
+      unsigned long int num_threads_to_use = (unsigned long int)fmin (nfiles, nthreads);
+      size_t num_files_per_thread = ceil (nfiles / num_threads_to_use);
+    
+      pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof(pthread_t));
+    
+      // Determine how many subthreads should be allowed for each thread
+      unsigned long int num_subthreads = floor ((nthreads - num_threads_to_use) / num_threads_to_use);
+      long int num_extra_threads = nthreads - num_threads_to_use * (1 + num_subthreads);
+      
+      unsigned long int thread_num = 0;
+      while (thread_num < num_threads_to_use)
+        {
+          unsigned long int nthreads_for_thread = num_subthreads;
+          if (num_extra_threads > 0)
+            {
+              // Any extra threads allowed should be distributed as evenly
+              // as possible
+              nthreads_for_thread++;
+              num_extra_threads--;
+            }
+          
+          pthread_t thread;
+          
+          size_t num_files_done = num_files_per_thread * thread_num;
+          size_t num_files_left = nfiles - num_files_done;
+          size_t nfiles_for_thread = (size_t)fmin (num_files_left, num_files_per_thread);
+          
+          struct sort_thread_args args = {&files[num_files_done], nfiles_for_thread, nthreads_for_thread};
+          pthread_create (&thread, NULL, sort_thread, &args);
+          
+          threads[thread_num] = thread;
+          
+          thread_num++;
+        }
+        
+        // Wait for each thread to finish before merging
+        // Again, we could optimize this by beginning some
+        // merges while other threads are still sorting
+        // That's something to look into once we have something
+        // functional
+        for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
+          {
+            pthread_t thread = threads[thread_num];
+            pthread_join (thread, NULL);
+          }
+        // Merge all the temp files created by the threads
+        size_t i;
+        
+        // This method of determining how many temp files have
+        // been created isn't ideal. We could probably rework
+        // ntemps to be a global variable, but this will work
+        // for the initial prototype.
+        size_t ntemps = 0;
+        struct tempnode *node = temphead;
+        for (i = 0; node; i++) {
+          ntemps++;
+          node = node->next;
+        }
+        
+        node = temphead;
+        struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
+        for (i = 0; node; i++)
+          {
+            tempfiles[i].name = node->name;
+            tempfiles[i].pid = node->pid;
+            node = node->next;
+          }
+        merge (tempfiles, ntemps, ntemps, output_file);
+        free (tempfiles);
+    
+        free(threads);
+        return;
+    }
+#endif
+
   struct buffer buf;
   size_t ntemps = 0;
   bool output_file_created = false;
@@ -2975,7 +3074,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
             sortlines (line, buf.nlines, linebase, nthreads, false);
-          if (buf.eof && !nfiles && !ntemps && !buf.left)
+          if (should_output && buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
               tfp = xfopen (output_file, "w");
@@ -3013,7 +3112,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
  finish:
   free (buf.buf);
 
-  if (! output_file_created)
+  if (should_output && ! output_file_created)
     {
       size_t i;
       struct tempnode *node = temphead;
@@ -3781,7 +3880,7 @@ main (int argc, char **argv)
             continue;
         }
 
-      sort (files, nfiles, outfile, nthreads);
+      sort (files, nfiles, outfile, nthreads, 1);
     }
 
   if (have_read_stdin && fclose (stdin) == EOF)
