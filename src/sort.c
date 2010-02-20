@@ -2929,31 +2929,65 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
 /* Thread arguments for sortlines_thread. */
 struct sort_thread_args
 {
-  char * const *files;
-  size_t nfiles;
+  struct line *restrict line;
+  size_t nlines;
+  struct line *restrict linebase;
   unsigned long int nthreads;
+  FILE *tfp;
+  char const *temp_output;
 };
 
-static void 
-sort (char * const *files, size_t nfiles, char const *output_file, 
-  unsigned long int nthreads, int should_output);
+static void
+sortlines_to_temp (struct line *restrict line, size_t nlines, 
+                    struct line *restrict temp,
+                    unsigned long int nthreads, FILE *tfp, char const *temp_output);
 
-/* Like sort, except with a signature acceptable to pthread_create.  */
+/* Like sortlines_to_temp, except with a signature acceptable to pthread_create.  */
 static void *
 sort_thread (void *data)
 {
   struct sort_thread_args const *args = data;
-  sort (args->files, args->nfiles, NULL, args->nthreads, 0);
+  sortlines_to_temp (args->line, args->nlines, args->linebase, args->nthreads, args->tfp, args->temp_output);
   free (args);
   return NULL;
 }
+
+static void
+sortlines_to_temp (struct line *restrict line, size_t nlines, 
+                    struct line *restrict linebase,
+                    unsigned long int nthreads, FILE *tfp, char const *temp_output)
+{
+  if (1 < nlines)
+    sortlines (line, nlines, linebase, nthreads, false);
+
+    do
+      {
+        line--;
+        write_bytes (line->text, line->length, tfp, temp_output);
+        if (unique)
+          while (linebase < line && compare (line, line - 1) == 0)
+            line--;
+      }
+    while (linebase < line);
+
+    xfclose (tfp, temp_output);
+}
+
+#if HAVE_LIBPTHREAD
+struct sort_thread_info {
+  pthread_t thread;
+  struct sort_thread_info *next;
+};
+struct sort_thread_info *thread_info_head;
+struct sort_thread_info *thread_info_tail;
+#endif
 
 /* Sort NFILES FILES onto OUTPUT_FILE. */
 static void
 sort (char * const *files, size_t nfiles, char const *output_file,
       unsigned long int nthreads, int should_output)
 {
-#if HAVE_LIBPTHREAD
+/*#if HAVE_LIBPTHREAD
   // If we are allowed to use more threads, we should!
   if (should_output && nfiles > 1 && nthreads > 1)
     {
@@ -3014,11 +3048,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
         // ntemps to be a global variable, but this will work
         // for the initial prototype.
         size_t ntemps = total_num_temps;
-     /*   struct tempnode *node = temphead;
-        for (i = 0; node; i++) {
-          ntemps++;
-          node = node->next;
-        }*/
         
         struct tempnode *node = temphead;
         struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
@@ -3034,13 +3063,17 @@ sort (char * const *files, size_t nfiles, char const *output_file,
         free(threads);
         return;
     }
-#endif
+#endif*/
 
   struct buffer buf;
   size_t ntemps = 0;
   bool output_file_created = false;
 
   buf.alloc = 0;
+
+#if HAVE_LIBPTHREAD
+  int total_number_of_threads = 0;
+#endif
 
   while (nfiles)
     {
@@ -3079,20 +3112,89 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
-          if (1 < buf.nlines)
-            sortlines (line, buf.nlines, linebase, nthreads, false);
+          
           if (should_output && buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
               tfp = xfopen (output_file, "w");
               temp_output = output_file;
               output_file_created = true;
+              
+              sortlines_to_temp (line, buf.nlines, linebase, nthreads, tfp, temp_output);
+              goto finish;
             }
-          else
+           else
             {
               ++ntemps;
               temp_output = create_temp (&tfp, NULL);
             }
+              
+#if HAVE_LIBPTHREAD
+            struct sort_thread_info *thread_info;
+            if (total_number_of_threads >= nthreads)
+              {
+                // Wait for the first thread to finish
+                pthread_join (thread_info_head->thread, NULL);
+                total_number_of_threads--;
+                thread_info = thread_info_head;
+                thread_info_head = thread_info_head->next;
+              }
+            else
+              {
+                thread_info = (struct sort_thread_info *)malloc (sizeof(struct sort_thread_info));
+              }
+              
+              // If we can, spin off a thread to do the sorting
+              pthread_t thread;
+            
+              // The thread is responsible for freeing the args
+              struct sort_thread_args *args = (struct sort_thread_args *)malloc (sizeof(struct sort_thread_args));
+              args->line = line;
+              args->nlines = buf.nlines;
+              args->linebase = linebase;
+              args->nthreads = nthreads / 2;
+              args->tfp = tfp;
+              args->temp_output = temp_output;
+              pthread_create (&thread, NULL, sort_thread, args);
+              
+              thread_info->thread = thread;
+              thread_info->next = NULL;
+              
+              if (thread_info_head == NULL)
+                {
+                  thread_info_head = thread_info;
+                }
+                
+              if (thread_info_tail == NULL)
+                {
+                  thread_info_tail = thread_info_head;
+                }
+              else
+                {
+                  thread_info_tail->next = thread_info;
+                  thread_info_tail = thread_info;
+                }
+
+       /*   if (total_number_of_threads < nthreads / 2) 
+            {
+              // If we can, spin off a thread to do the sorting
+              pthread_t thread;
+            
+              // The thread is responsible for freeing the args
+              struct sort_thread_args *args = (struct sort_thread_args *)malloc (sizeof(struct sort_thread_args));
+              args->line = line;
+              args->nlines = buf.nlines;
+              args->linebase = linebase;
+              args->nthreads = nthreads / 2;
+              args->tfp = tfp;
+              args->temp_output = temp_output;
+              pthread_create (&thread, NULL, sort_thread, args);
+            }*/
+#else
+            sortlines_to_temp (line, buf.nlines, linebase, nthreads, tfp, temp_output);
+#endif
+     /*     if (1 < buf.nlines)
+            sortlines (line, buf.nlines, linebase, nthreads, false);
 
           do
             {
@@ -3104,20 +3206,30 @@ sort (char * const *files, size_t nfiles, char const *output_file,
             }
           while (linebase < line);
 
-          xfclose (tfp, temp_output);
+          xfclose (tfp, temp_output);*/
 
           /* Free up some resources every once in a while.  */
           if (MAX_PROCS_BEFORE_REAP < nprocs)
             reap_some ();
-
-          if (output_file_created)
-            goto finish;
         }
       xfclose (fp, file);
     }
 
  finish:
   free (buf.buf);
+  
+#if HAVE_LIBPTHREAD
+  // Wait for all the remaining threads to complete
+  struct sort_thread_info *thread_info = thread_info_head;
+  thread_info_head = NULL;
+  thread_info_tail = NULL;
+  while (thread_info) {
+    pthread_join(thread_info->thread, NULL);
+    struct sort_thread_info *thread_info_old = thread_info;
+    thread_info = thread_info->next;
+    free (thread_info_old);
+  }
+#endif
 
   if (should_output && ! output_file_created)
     {
