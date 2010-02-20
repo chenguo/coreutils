@@ -2699,7 +2699,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
              /* for (i = 0; i < nfiles; ++i)
                 ord[i] = ord[i + 1];*/
 	      fileSort.nitems=0;
-              for (i = 0; i < nfiles; i++)
+               for (i = 0; i < nfiles; i++)
                 {
                   heap_push(&fileSort, i, cur);
                 }              //if(ord[0])
