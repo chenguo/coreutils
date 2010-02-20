@@ -232,6 +232,8 @@ struct work_unit
   struct line **parent_end;     /* Pointer to END_LO or END_HI in parent,
                                    dependent on if this work unit is merging
                                    parent's LO or HI. */
+  size_t nlo;                   /* Lines left to merge on LO half. */
+  size_t nhi;                   /* Lines left to merge on HI half. */
   size_t nlines;                /* Lines left to merge. */
   size_t total_lines;           /* Total number of lines. */
   size_t level;                 /* Level in merge tree. Top level is 0. */
@@ -2857,22 +2859,27 @@ inline static void
 merge_work (struct line *restrict lo, struct line *restrict hi,
             struct line *const restrict end_lo,
             struct line *const restrict end_hi,
+	    size_t nlo, size_t nhi,
             struct line *restrict dest)
 {
   /* merge lines until one source is empty */
   while (lo != end_lo && hi != end_hi)
     {
       int cmp = compare (lo - 1, hi - 1);
-      if (cmp <= 0)
+      if (cmp <= 0) {
         *--dest = *--lo;
-      else
+	nlo--; }
+      else {
         *--dest = *--hi;
+	nhi--; }
     }
   /* add the remaining lines from the other source */
-  while (lo != end_lo)
-    *--dest = *--lo;
-  while (hi != end_hi)
-    *--dest = *--hi;
+  if (!nhi) {
+    while (lo != end_lo)
+      *--dest = *--lo; }
+  if (!nlo) {
+    while (hi != end_hi)
+      *--dest = *--hi; }
 }
 
 /* Repeatedly completes work in work_units in queue.
@@ -2943,6 +2950,8 @@ chenprintf ("\n");
       work->dest -= merged_lines;
       work->lo -= nlo;
       work->hi -= nhi;
+      work->nlo = nlo; // Chris: need to check this
+      work->nhi = nhi; // Chris: need to check this
       geneprintf("XXX %d\n", __LINE__);
       size_t nlines = work->nlines;
       size_t level = work->level;
