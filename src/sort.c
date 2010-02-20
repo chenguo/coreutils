@@ -557,6 +557,7 @@ struct tempnode
 };
 static struct tempnode *volatile temphead;
 static struct tempnode *volatile *temptail = &temphead;
+size_t total_num_temps = 0;
 
 struct sortfile
 {
@@ -786,6 +787,7 @@ create_temp_file (int *pfd, bool survive_fd_exhaustion)
     {
       *temptail = node;
       temptail = &node->next;
+      total_num_temps++;
     }
   saved_errno = errno;
   cs_leave (cs);
@@ -3011,14 +3013,14 @@ sort (char * const *files, size_t nfiles, char const *output_file,
         // been created isn't ideal. We could probably rework
         // ntemps to be a global variable, but this will work
         // for the initial prototype.
-        size_t ntemps = 0;
-        struct tempnode *node = temphead;
+        size_t ntemps = total_num_temps;
+     /*   struct tempnode *node = temphead;
         for (i = 0; node; i++) {
           ntemps++;
           node = node->next;
-        }
+        }*/
         
-        node = temphead;
+        struct tempnode *node = temphead;
         struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
         for (i = 0; node; i++)
           {
