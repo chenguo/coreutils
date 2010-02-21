@@ -1,29 +1,16 @@
-sort ():
-  Modify bytes_per_line to be (log P + 1) * sizeof (struct line)
-  Modify call to sortlines () (added arguments mostly) (DONE: Chen)
-  Remove writing to output (refactoring to top level merge)
+Throughout, K refers to the max lines we should merge at a time. As of now, the
+lone reference to this value is in update_parent at the end, and it is 
+total / (10 * level). This is obviously nto adequate, but let's use it for now,
+and maybe tune it Tuesday night before the demo after everything else is working.
 
-sortlines ():
-  Rename arguments: temp -> dest. (DONE: Chen)
-  Add total_lines, pointer to parent struct, pointer to end of src_(hi|lo) in parent struct.
-    (DONE: Chen. ** More arguments may need to be added **)
-  Construct work_unit struct for node. (DONE: Chen)
-  Modify arguments struct for pthread create, for new sortlines arguments. (DONE: Chen)
-  Modify recursive call to sortlines for new arguments. (DONE: Chen)
-  Remove call to mergelines. (DONE: Chen)
-  Handle transition from multithreaded to singlethreaded case (DONE: Chen)
-  Add infinite job-doing loop (in progress: Gene)
+TODO:
+This is rather short, I think we've set up do_work and update_parent to support
+merging K-sizd pieces already. So really we just have...
 
-New merge function (merge_work):
-  Take as arguments src1, src2, n1, n2, dest. (DONE: Mike)
-  Test that it has same functionality as old mergelines. (DONE: Mike)
 
-sortlines_thread ():
-  Modify to satisfy new arguments. (DONE: Chen)
+merge_work: implement merging max of K units at a time.
 
-Priority Queue:
-  Be able to link to it first, I guess. (in progress: Gene)
-  Define compare function. (in progress: Gene)
 
-mergesort ():
-  New function using old code, handles single threaded sorting. (DONE: Chen)
+There's likely small changes that need to be made to do_work/update_parent, esp
+wrt arguments and return values.
+Expect locking problems, since we'd have a lot more items in teh queue now.

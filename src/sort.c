@@ -2837,15 +2837,15 @@ chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
 
   geneprintf("XXX %d\n", __LINE__);
   size_t level = parent->level;
-  size_t nlo = parent->lo - parent->end_lo;
-  size_t nhi = parent->hi - parent->end_hi;
+  size_t lo_avail = parent->lo - parent->end_lo;
+  size_t hi_avail = parent->hi - parent->end_hi;
   size_t total = parent->total_lines;
   unlock_work_unit (parent);
   geneprintf("XXX %d\n", __LINE__);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
 //chenprintf ("UPDATE PARENT: nlo %u nhi %u total %u level %u\n", nlo, nhi, total, level);
-  if (nlo && nhi && (nlo + nhi > total / (10 * level)))
+  if (lo_avail && hi_avail && (lo_avail + hi_avail > total / (10 * level)))
     {
       /* If the top level finished: */
       chenprintf ("Parent Pushed.\n");
