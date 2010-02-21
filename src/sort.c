@@ -2936,14 +2936,14 @@ struct sort_thread_args
 
 static void 
 sort (char * const *files, size_t nfiles, char const *output_file, 
-  unsigned long int nthreads, int should_output);
+  unsigned long int nthreads, bool should_output);
 
 /* Like sort, except with a signature acceptable to pthread_create.  */
 static void *
 sort_thread (void *data)
 {
   struct sort_thread_args const *args = data;
-  sort (args->files, args->nfiles, NULL, args->nthreads, 0);
+  sort (args->files, args->nfiles, NULL, args->nthreads, false);
   free (args);
   return NULL;
 }
@@ -2951,88 +2951,152 @@ sort_thread (void *data)
 /* Sort NFILES FILES onto OUTPUT_FILE. */
 static void
 sort (char * const *files, size_t nfiles, char const *output_file,
-      unsigned long int nthreads, int should_output)
+      unsigned long int nthreads, bool should_output)
 {
 #if HAVE_LIBPTHREAD
   // If we are allowed to use more threads, we should!
   if (should_output && nfiles > 1 && nthreads > 1)
     {
-      unsigned long int num_threads_to_use = (unsigned long int)fmin (nfiles, nthreads);
-      size_t num_files_per_thread = ceil (nfiles / num_threads_to_use);
-    
-      pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof(pthread_t));
-    
-      // Determine how many subthreads should be allowed for each thread
-      unsigned long int num_subthreads = floor ((nthreads - num_threads_to_use) / num_threads_to_use);
-      long int num_extra_threads = nthreads - num_threads_to_use * (1 + num_subthreads);
+      // Determine which files are on which device
+      char ***device_files = (char ** const *)malloc (nfiles * sizeof (char * const *));
+      int num_devices = 0;
+      int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
+      dev_t *device_map = (dev_t *)malloc (nfiles * sizeof (dev_t));
       
-      unsigned long int thread_num = 0;
-      while (thread_num < num_threads_to_use)
+      int file_num;
+      for (file_num = 0; file_num < nfiles; file_num++)
         {
-          unsigned long int nthreads_for_thread = num_subthreads;
-          if (num_extra_threads > 0)
+          char * const filename = files[file_num];
+          struct stat file_info;
+          stat (filename, &file_info);
+          dev_t device_for_file = file_info.st_dev;
+          
+          // Determine if any other files from this device have been checked
+          int device_num;
+          for (device_num = 0; device_num < num_devices; device_num++)
             {
-              // Any extra threads allowed should be distributed as evenly
-              // as possible
-              nthreads_for_thread++;
-              num_extra_threads--;
+              if (device_map[device_num] == device_for_file)
+                break;
             }
-          
-          pthread_t thread;
-          
-          size_t num_files_done = num_files_per_thread * thread_num;
-          size_t num_files_left = nfiles - num_files_done;
-          size_t nfiles_for_thread = (size_t)fmin (num_files_left, num_files_per_thread);
-          
-          // The thread is responsible for freeing the args
-          struct sort_thread_args *args = (struct sort_thread_args *)malloc (sizeof(struct sort_thread_args));
-          args->files = (files + num_files_done);
-          args->nfiles = nfiles_for_thread;
-          args->nthreads = nthreads_for_thread;
-          pthread_create (&thread, NULL, sort_thread, args);
-          
-          threads[thread_num] = thread;
-          
-          thread_num++;
+            
+          // If no other files have been checked, create all the
+          // necessary stuff for the new device
+          if (device_num >= num_devices)
+            {
+              device_num = num_devices;
+              char **files_for_device = (char **)malloc (nfiles * sizeof (char * const));
+              device_files[device_num] = files_for_device;
+              num_files_on_device[device_num] = 0;
+              device_map[device_num] = device_for_file;
+              num_devices++;
+            }
+            
+            // Add the filename to the device's file list
+            int num_files = num_files_on_device[device_num];
+            device_files[device_num][num_files] = filename;
+            num_files_on_device[device_num] = num_files + 1;
         }
         
-        // Wait for each thread to finish before merging
-        // Again, we could optimize this by beginning some
-        // merges while other threads are still sorting
-        // That's something to look into once we have something
-        // functional
-        for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
-          {
-            pthread_t thread = threads[thread_num];
-            pthread_join (thread, NULL);
+        if (num_devices > 1)
+          { 
+            unsigned long int num_threads_to_use = (unsigned long int)fmin (nthreads, num_devices);
+            unsigned long int num_subthreads_per_thread = floor (nthreads / num_threads_to_use);
+          //  unsigned long int num_subthreads_to_distribute = nthreads % num_threads_to_use;
+            
+            pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
+            unsigned long int thread_num = 0;
+            unsigned long int num_threads_running = 0;
+            
+            int device_num;
+            for (device_num = 0; device_num < num_devices; device_num++)
+              {
+                // If there's only one more device's files to sort,
+                // just do it on the main thread
+                if (num_devices - device_num == 1)
+                  {
+                    sort (device_files[device_num], num_files_on_device[device_num], 
+                      NULL, num_subthreads_per_thread, false);
+                    continue;
+                  }
+                
+                // If we've run out of threads, wait for the next one
+                // to finish before we continue
+                if (num_threads_running == num_threads_to_use)
+                  {
+                    pthread_join (threads[thread_num], NULL);
+                    num_threads_running--;
+                  }
+                  
+                // The thread is responsible for freeing the args
+                pthread_t thread;
+                struct sort_thread_args *args = (struct sort_thread_args *)malloc (sizeof(struct sort_thread_args));
+                args->files = device_files[device_num];
+                args->nfiles = num_files_on_device[device_num];
+                args->nthreads = num_subthreads_per_thread;
+                pthread_create (&thread, NULL, sort_thread, args);
+
+                threads[thread_num] = thread;
+                thread_num++;
+                num_threads_running++;
+                
+                // Treat threads like a circular array
+                if (thread_num == num_threads_to_use)
+                  {
+                    thread_num = 0;
+                  }
+              }
+            
+            // Wait for each thread to finish before merging
+            // We could potentially optimize this by beginning some
+            // merges while other threads are still sorting
+            // That's something to look into once we have something
+            // functional
+            for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
+              {
+                pthread_t thread = threads[thread_num];
+                pthread_join (thread, NULL);
+              }
+              
+            // Merge all the temp files created by the threads
+            size_t i;
+            size_t ntemps = total_num_temps;
+
+            struct tempnode *node = temphead;
+            struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
+            for (i = 0; node; i++)
+              {
+                tempfiles[i].name = node->name;
+                tempfiles[i].pid = node->pid;
+                node = node->next;
+              }
+            merge (tempfiles, ntemps, ntemps, output_file);
+            free (tempfiles);
+
+            free(threads);
+            
+            // Free all the memory allocated for device information
+            for (device_num = 0; device_num < num_devices; device_num++)
+              {
+                free (device_files[device_num]);
+              }
+            free (device_files);
+            free (num_files_on_device);
+            free (device_map);
+            
+            return;
           }
-        // Merge all the temp files created by the threads
-        size_t i;
-        
-        // This method of determining how many temp files have
-        // been created isn't ideal. We could probably rework
-        // ntemps to be a global variable, but this will work
-        // for the initial prototype.
-        size_t ntemps = total_num_temps;
-     /*   struct tempnode *node = temphead;
-        for (i = 0; node; i++) {
-          ntemps++;
-          node = node->next;
-        }*/
-        
-        struct tempnode *node = temphead;
-        struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
-        for (i = 0; node; i++)
+        else
           {
-            tempfiles[i].name = node->name;
-            tempfiles[i].pid = node->pid;
-            node = node->next;
+            // Free all the memory allocated for device information
+            int device_num;
+            for (device_num = 0; device_num < num_devices; device_num++)
+              {
+                free (device_files[device_num]);
+              }
+            free (device_files);
+            free (num_files_on_device);
+            free (device_map);
           }
-        merge (tempfiles, ntemps, ntemps, output_file);
-        free (tempfiles);
-    
-        free(threads);
-        return;
     }
 #endif
 
@@ -3887,7 +3951,7 @@ main (int argc, char **argv)
             continue;
         }
 
-      sort (files, nfiles, outfile, nthreads, 1);
+      sort (files, nfiles, outfile, nthreads, true);
     }
 
   if (have_read_stdin && fclose (stdin) == EOF)
