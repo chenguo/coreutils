@@ -114,10 +114,12 @@ struct work_unit_queue
 {
   gdsl_heap_t priority_queue;
 //  pthread_mutex_t mutex;
-pthread_spinlock_t lock;
+  pthread_spinlock_t lock;
 };
 static struct work_unit_queue merge_queue;
 #endif
+
+#define UNIT_OF_MERGE(total, level) ((total) / (10 * (level))
 
 /* Exit statuses.  */
 enum
@@ -2830,18 +2832,15 @@ update_parent (struct work_unit *const restrict parent,
   geneprintf("in update_parent at %d\n", __LINE__);
   geneprintf("\tparent is %p\n", parent);
 
-chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
-  lock_work_unit (parent);
-  geneprintf("XXX %d\n", __LINE__);
   *parent_end = *parent_end - nlines;
 
-  geneprintf("XXX %d\n", __LINE__);
+  lock_work_unit (parent);
+chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
   size_t level = parent->level;
   size_t lo_avail = parent->lo - parent->end_lo;
   size_t hi_avail = parent->hi - parent->end_hi;
   size_t total = parent->total_lines;
   unlock_work_unit (parent);
-  geneprintf("XXX %d\n", __LINE__);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
 //chenprintf ("UPDATE PARENT: nlo %u nhi %u total %u level %u\n", nlo, nhi, total, level);
