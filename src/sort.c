@@ -23,7 +23,7 @@
 #define genedebug 0
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
-#define chendebug 0
+#define chendebug 1
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #include <config.h>
@@ -122,7 +122,7 @@ static struct work_unit_queue merge_queue;
 /* Each call to merge_work() should merge this many elements. This macro
  * should always expand to a positive (read: non-zero) integer
  */
-#define UNIT_OF_MERGE(total, level) ((total) / (10 * (level)) + 1)
+#define UNIT_OF_MERGE(total, level) ((total) / (5 * (level)) + 1)
 
 /* Exit statuses.  */
 enum
@@ -243,6 +243,7 @@ struct work_unit
   size_t total_lines;           /* Total number of lines. */
   size_t level;                 /* Level in merge tree. Top level is 0. */
   struct work_unit *parent;     /* Pointer to parent work unit. */
+  bool queued;                  /* True if work_unit is in job queue. */
   pthread_spinlock_t *lock;     /* Some spinlock item. */
 };
 
@@ -2837,7 +2838,7 @@ update_parent (struct work_unit *const restrict parent,
   geneprintf("\tparent is %p\n", parent);
 
   lock_work_unit (parent);
-  chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
+  chenprintf ("UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
 
   *parent_end -= nlines;  /* note: *parent_end is one of parent->end_(lo|hi) */
 
@@ -2845,17 +2846,21 @@ update_parent (struct work_unit *const restrict parent,
   size_t lo_avail = parent->lo - parent->end_lo;
   size_t hi_avail = parent->hi - parent->end_hi;
   size_t total = parent->total_lines;
-  unlock_work_unit (parent);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
   if (lo_avail >= UNIT_OF_MERGE(total, level)
-      && hi_avail >= UNIT_OF_MERGE(total, level))
+      && hi_avail >= UNIT_OF_MERGE(total, level)
+      && !parent->queued)
     {
+      parent->queued = true;
+      unlock_work_unit (parent);
       /* If the top level finished: */
-      chenprintf ("Parent Pushed.\n");
+      chenprintf ("UPDATE PARENT: Parent Pushed.\n");
       queue_insert (&merge_queue, parent);
       geneprintf("XXX %d\n", __LINE__);
     }
+  else
+    unlock_work_unit (parent);
 }
 
 struct line_count
@@ -2881,7 +2886,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   /* TODO: instead of decrementing NLO, can calculate from difference
      btw *LO passed in and *LO after loop. Same for nhi. */
   geneprintf("Entering merge_work. n_to_merge==%d\n", n_to_merge);
-//  chenprintf ("MERGE_WORK: nlo %u nhi %u lo_avail %u hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
+  chenprintf ("MERGE_WORK: nlo %u nhi %u lo_avail %u hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
 
   while (lo != end_lo && hi != end_hi && n_to_merge-- > 0)
     {
@@ -2946,6 +2951,7 @@ do_work (void *nothing)
 
       //geneprintf("in while(1) loop. work is %p\n", work);
       lock_work_unit (work);
+      work->queued = false;
       //geneprintf("work unit locked at %d. work->level==%d, work->parent==%p, work->parent->lock==%p\n", __LINE__, work->level, work->parent, work->parent?work->parent->lock:NULL);
       //chenprintf ("DO WORK: pulled work unit level %u, total lines %u\n", work->level, work->total_lines);
 
@@ -2993,26 +2999,33 @@ do_work (void *nothing)
       /* Need to grab updated values for end pointers. */
       end_lo = work->end_lo;
       end_hi = work->end_hi;
-      unlock_work_unit (work);
 
+      chenprintf ("DO_WORK: nlo %u, nhi %u, level %u\n", new_vals.nlo, new_vals.nhi, level);
 
-      if ((new_vals.lo - end_lo >= UNIT_OF_MERGE (total_lines, level)
+      if ( !work->queued
+           && ((new_vals.lo - end_lo >= UNIT_OF_MERGE (total_lines, level)
            && new_vals.hi - end_hi >= UNIT_OF_MERGE (total_lines, level))
-           || (new_vals.nlo ^ new_vals.nhi)
-           || (new_vals.nlo && new_vals.nhi && new_vals.nlo + new_vals.nhi < 2 * UNIT_OF_MERGE (total_lines, level)))
+           || (new_vals.nlo && !new_vals.nhi)
+           || (!new_vals.nlo && new_vals.nhi)
+           || (new_vals.nlo && new_vals.nlo < UNIT_OF_MERGE (total_lines, level))
+           || (new_vals.nhi && new_vals.nhi < UNIT_OF_MERGE (total_lines, level))))
 
 //      if (new_vals.nlo + new_vals.nhi > 0)
         {
+          chenprintf ("DO_WORK: self inserted.\n");
+          work->queued = true;
+          unlock_work_unit (work);
           queue_insert (&merge_queue, work);
-          geneprintf("\nnew_vals.nlo + new_vals.nhi == %d\n\n", new_vals.nlo + new_vals.nhi);
-   
+ 
+//          geneprintf("\nnew_vals.nlo + new_vals.nhi == %d\n\n", new_vals.nlo + new_vals.nhi);
         }
+      else
+        unlock_work_unit (work);
 
-      chenprintf ("DO_WORK: nlo %u, nhi %u, level %u\n", new_vals.nlo, new_vals.nhi, level);
       if (new_vals.nlo + new_vals.nhi == 0 && level == 1)
       //else if (level == 1)
 {
-chenprintf ("trigger?");
+chenprintf ("*** EOF INSERTED ***\n");
         queue_insert (&merge_queue, parent);  //gene says: TODO: let update_parent handle dummy work_unit as well. One less branch
 }
 
@@ -3091,7 +3104,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       pthread_spinlock_t lock;
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
       struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlo, nhi,
-                               parent->total_lines, level, parent, &lock};
+                               parent->total_lines, level, parent, false, &lock};
 //chenprintf ("SORTLINES: create lvl %u, child1 %u, child2 %u\n", level, &work.end_lo, &work.end_hi);
 
       /* Calculate thread arguments. */
@@ -3125,6 +3138,8 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
 
           /* Push work unit, initiate loop. */
 //  geneprintf("XXX\tqueue len==%d\n", gdsl_heap_get_size (merge_queue.priority_queue));
+          work.queued = true;
+          chenprintf ("SORTLINES: base level work_unit inserted.\n");
           queue_insert (&merge_queue, &work);
 //  geneprintf("XXX\tqueue len==%d\n", gdsl_heap_get_size (merge_queue.priority_queue));
 //  geneprintf("inserted work==%p into pq. work->lock is %p\n", &work, &work.lock);
@@ -3400,7 +3415,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               pthread_spinlock_t lock;
               pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
               struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-                                       0, buf.nlines, 0, NULL, &lock};
+                                       0, buf.nlines, 0, NULL, false, &lock};
               sortlines (line, linebase, nthreads, buf.nlines, &work, NULL);
             }
           if (buf.eof && !nfiles && !ntemps && !buf.left)
