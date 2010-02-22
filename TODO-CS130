@@ -18,3 +18,5 @@ Expect locking problems, since we'd have a lot more items in teh queue now.
 
 
 Gene says: Potential bug: we're inserting work_units into queue with queue_insert(), but without locking them first.
+Chen says: Need to examine UNIT_TO_MERGE, or at least logic surrounding it.
+  Files with very few lines (tested with 16) aren't sorting properly.
