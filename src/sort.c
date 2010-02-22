@@ -2810,7 +2810,7 @@ pthread_spin_lock (&queue->lock);
 #endif
 //  pthread_mutex_unlock (&merge_queue.mutex);
 pthread_spin_unlock (&queue->lock);
-  if (ret) chenprintf ("POP: work unit level %u\n", ret->level);
+  //if (ret) chenprintf ("POP: work unit level %u\n", ret->level);
   return ret;
 }
 
@@ -2818,6 +2818,7 @@ static inline void
 lock_work_unit (struct work_unit *const restrict work)
 {
   geneprintf("in lock_work_unit. work->lock==%p\n", work->lock);
+  //chenprintf("Lock: level %u work unit\n", work->level);
   pthread_spin_lock (work->lock);
 }
 
@@ -2836,7 +2837,7 @@ update_parent (struct work_unit *const restrict parent,
   geneprintf("\tparent is %p\n", parent);
 
   lock_work_unit (parent);
-chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
+  chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
 
   *parent_end -= nlines;  /* note: *parent_end is one of parent->end_(lo|hi) */
 
@@ -2847,7 +2848,6 @@ chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
   unlock_work_unit (parent);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
-//chenprintf ("UPDATE PARENT: nlo %u nhi %u total %u level %u\n", nlo, nhi, total, level);
   if (lo_avail >= UNIT_OF_MERGE(total, level)
       && hi_avail >= UNIT_OF_MERGE(total, level))
     {
@@ -2881,6 +2881,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   /* TODO: instead of decrementing NLO, can calculate from difference
      btw *LO passed in and *LO after loop. Same for nhi. */
   geneprintf("Entering merge_work. n_to_merge==%d\n", n_to_merge);
+
   while (lo != end_lo && hi != end_hi && n_to_merge-- > 0)
     {
       int cmp = compare (lo - 1, hi - 1);
@@ -2895,6 +2896,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
           nhi--;
         }
     }
+
   /* add the remaining lines from the other source */
   /* TODO: speed up with memcpy. */
   if (!nhi)
@@ -2964,14 +2966,13 @@ do_work (void *nothing)
 
       /* Merge work needs to return new nlo, nhi values. New struct. */
       /* TODO: implement breaking. */
-      geneprintf("Current level==%d\n", level);
-      geneprintf("Calling merge_work(\n\tlo==%p, \n\thi==%p, \n\tend_lo==%p, \n\tend_hi==%p, \n\tnlo==%d, \n\tnhi==%d, \n\tdest==%p, \n\tn_to_merge==%d\n", lo, hi, end_lo, end_hi, nlo, nhi, dest, UNIT_OF_MERGE(total_lines, level));
-
+      //geneprintf("Current level==%d\n", level);
+      //geneprintf("Calling merge_work(\n\tlo==%p, \n\thi==%p, \n\tend_lo==%p, \n\tend_hi==%p, \n\tnlo==%d, \n\tnhi==%d, \n\tdest==%p, \n\tn_to_merge==%d\n", lo, hi, end_lo, end_hi, nlo, nhi, dest, UNIT_OF_MERGE(total_lines, level));
       struct line_count new_vals = merge_work (lo, hi, end_lo, end_hi,
                                               nlo, nhi, dest,
                                               UNIT_OF_MERGE(total_lines, level));
 
-      geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
+      //geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
 
       lock_work_unit (work);
       size_t merged_lines = lo - new_vals.lo + hi - new_vals.hi;
@@ -2988,14 +2989,12 @@ do_work (void *nothing)
         {
           queue_insert (&merge_queue, work);
           geneprintf("\nnew_vals.nlo + new_vals.nhi == %d\n\n", new_vals.nlo + new_vals.nhi);
-          if (level > 1)
-            update_parent (parent, parent_end, merged_lines);
         }
-      else if (level == 1)
-        // {chenprintf ("Pushing EOF, parent level %u, total lines %u\n", parent->level, parent->total_lines);
-        {
-          queue_insert (&merge_queue, parent);  //gene says: TODO: let update_parent handle dummy work_unit as well. One less branch
-        }
+
+      if (level > 1)
+        update_parent (parent, parent_end, merged_lines);
+      else (level == 1)
+        queue_insert (&merge_queue, parent);  //gene says: TODO: let update_parent handle dummy work_unit as well. One less branch
 
        // chenprintf ("EOF pushed, exiting.\n");}
       //geneprintf("XXX %d\n", __LINE__);
