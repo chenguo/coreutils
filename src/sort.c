@@ -2832,10 +2832,11 @@ update_parent (struct work_unit *const restrict parent,
   geneprintf("in update_parent at %d\n", __LINE__);
   geneprintf("\tparent is %p\n", parent);
 
-  *parent_end = *parent_end - nlines;
-
   lock_work_unit (parent);
 chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
+
+  *parent_end -= nlines;  /* note: *parent_end is one of parent->end_(lo|hi) */
+
   size_t level = parent->level;
   size_t lo_avail = parent->lo - parent->end_lo;
   size_t hi_avail = parent->hi - parent->end_hi;
@@ -2970,7 +2971,7 @@ do_work (void *nothing)
       if (new_vals.nlo + new_vals.nhi != 0 && level > 1)
         update_parent (parent, parent_end, merged_lines);
       else // {chenprintf ("Pushing EOF, parent level %u, total lines %u\n", parent->level, parent->total_lines);
-        queue_insert (&merge_queue, parent);
+        queue_insert (&merge_queue, parent);  //gene says: TODO: let update_parent handle dummy work_unit as well. One less branch
        // chenprintf ("EOF pushed, exiting.\n");}
       //geneprintf("XXX %d\n", __LINE__);
     }
