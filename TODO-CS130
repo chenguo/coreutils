@@ -14,3 +14,7 @@ merge_work: implement merging max of K units at a time.
 There's likely small changes that need to be made to do_work/update_parent, esp
 wrt arguments and return values.
 Expect locking problems, since we'd have a lot more items in teh queue now.
+
+
+
+Gene says: Potential bug: we're inserting work_units into queue with queue_insert(), but without locking them first.
