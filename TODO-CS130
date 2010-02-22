@@ -18,5 +18,11 @@ Expect locking problems, since we'd have a lot more items in teh queue now.
 
 
 Gene says: Potential bug: we're inserting work_units into queue with queue_insert(), but without locking them first.
-Chen says: Need to examine UNIT_TO_MERGE, or at least logic surrounding it.
-  Files with very few lines (tested with 16) aren't sorting properly.
+Chen says: Two things on the short term todo list:
+1) Fix horribly mutated output that comes out more than half the time.
+2) Clean up all the if condition in do_work.
+
+Long term:
+1) Optimize.
+2) Polish/Clean up everything.
+3) How should we handle the GDSL situation? Possibly ask other group for their heap.
