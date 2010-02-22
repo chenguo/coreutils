@@ -2826,7 +2826,7 @@ unlock_work_unit (struct work_unit *const restrict work)
 
 static inline void
 update_parent (struct work_unit *const restrict parent,
-               struct line **restrict parent_end,
+               struct line ** parent_end, /*XXX gene says: triple check please. Should not be restrict because '*parent_end -= nlines' below will affect parent->end_lo or parent->end_hi and thus needs to be stored before parent->end_(lo|hi) is loaded. */
                size_t nlines)
 {
   geneprintf("in update_parent at %d\n", __LINE__);
