@@ -2845,7 +2845,8 @@ chenprintf ("IN UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
 //chenprintf ("UPDATE PARENT: nlo %u nhi %u total %u level %u\n", nlo, nhi, total, level);
-  if (lo_avail && hi_avail && (lo_avail + hi_avail > total / (10 * level)))
+  if (lo_avail && hi_avail && lo_avail >= total / (10 * level)
+      && hi_avail >= total / (10 * level))  /* XXX: gene wants affirmation that (lo|hi)_avail EACH be >= K is the correct thing to do. */
     {
       /* If the top level finished: */
       chenprintf ("Parent Pushed.\n");
