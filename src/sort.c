@@ -2993,7 +2993,7 @@ do_work (void *nothing)
 
       if (level > 1)
         update_parent (parent, parent_end, merged_lines);
-      else (level == 1)
+      else
         queue_insert (&merge_queue, parent);  //gene says: TODO: let update_parent handle dummy work_unit as well. One less branch
 
        // chenprintf ("EOF pushed, exiting.\n");}
