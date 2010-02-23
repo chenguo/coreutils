@@ -1,28 +1,7 @@
-Throughout, K refers to the max lines we should merge at a time. As of now, the
-lone reference to this value is in update_parent at the end, and it is 
-total / (10 * level). This is obviously nto adequate, but let's use it for now,
-and maybe tune it Tuesday night before the demo after everything else is working.
-
 TODO:
-This is rather short, I think we've set up do_work and update_parent to support
-merging K-sizd pieces already. So really we just have...
 
-
-merge_work: implement merging max of K units at a time.
-
-
-There's likely small changes that need to be made to do_work/update_parent, esp
-wrt arguments and return values.
-Expect locking problems, since we'd have a lot more items in teh queue now.
-
-
-
-Gene says: Potential bug: we're inserting work_units into queue with queue_insert(), but without locking them first.
-Chen says: Two things on the short term todo list:
-1) Fix horribly mutated output that comes out more than half the time.
-2) Clean up all the if condition in do_work.
-
-Long term:
-1) Optimize.
-2) Polish/Clean up everything.
-3) How should we handle the GDSL situation? Possibly ask other group for their heap.
+1) Optimize do_work and merge_work further. Merge_work is ~4% of runtime.
+2) Find optimal expression for UNIT_OF_MERGE
+3) Clean up if statement in do_work and update_parent
+4) Polish code (i.e. comments, formatting)
+5) Proper linking of GDSL / other heap implementation
