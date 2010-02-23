@@ -23,7 +23,7 @@
 #define genedebug 0
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
-#define chendebug 0
+#define chendebug 1
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #define chrisdebug 0
@@ -132,7 +132,7 @@ static struct work_unit_queue merge_queue;
 /* Each call to merge_work() should merge this many elements. This macro
  * should always expand to a positive (read: non-zero) integer
  */
-#define UNIT_OF_MERGE(total, level) ((total) / (5 * (level)) + 1)
+#define UNIT_OF_MERGE(total, level) ((total) / (10 * (level)) + 1)
 
 /* Exit statuses.  */
 enum
@@ -2939,6 +2939,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
 
   while (lo != end_lo && hi != end_hi && n_to_merge-- > 0)
     {
+      //chenprintf ("MERGE_WORK: comparing LO %c HI %c\n", (lo-1)->text[0], (hi-1)->text[0]);
       int cmp = compare (lo - 1, hi - 1);
       if (cmp <= 0)
         {
@@ -2954,7 +2955,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
         }
     }
 
-//  chenprintf ("MERGE_WORK: phase 2: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
+  chenprintf ("MERGE_WORK: phase 2: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   /* add the remaining lines from the other source */
   /* TODO: speed up with memcpy. */
   if (!nhi)
@@ -3035,7 +3036,7 @@ do_work (void *nothing)
       size_t nlo = work->nlo;
       size_t nhi = work->nhi;
       size_t total_lines = work->total_lines;
-      unlock_work_unit (work);
+      //unlock_work_unit (work);
 
       chenprintf ("DO_WORK: work unit pulled, level %u, nlo %u nhi %u lo_avail %u hi_avail %u\n", work->level, nlo, nhi, lo - end_lo, hi - end_hi);
 
@@ -3050,7 +3051,7 @@ do_work (void *nothing)
 
       //geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
 
-      lock_work_unit (work);
+      //lock_work_unit (work);
       size_t merged_lines = lo - new_vals.lo + hi - new_vals.hi;
       work->dest -= merged_lines;
       work->lo = new_vals.lo;
@@ -3071,17 +3072,17 @@ do_work (void *nothing)
       if (!work->queued
           && (lo_avail >= UNIT_OF_MERGE (total_lines, level)
               && hi_avail >= UNIT_OF_MERGE (total_lines, level))
-         /* Chen's version: Don't delete
-           || (new_vals.nlo && !new_vals.nhi)
-           || (!new_vals.nlo && new_vals.nhi)
-           || (new_vals.nlo && new_vals.nlo < UNIT_OF_MERGE (total_lines, level))
-           || (new_vals.nhi && new_vals.nhi < UNIT_OF_MERGE (total_lines, level))))
-           */
+         /* Chen's version: Don't delete */
+          // || (new_vals.nlo && !new_vals.nhi)
+          // || (!new_vals.nlo && new_vals.nhi)
+          // || (new_vals.nlo && new_vals.nlo < UNIT_OF_MERGE (total_lines, level))
+          // || (new_vals.nhi && new_vals.nhi < UNIT_OF_MERGE (total_lines, level)))
+          
          /* Gene's version: */
           || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
-              && (new_vals.nlo < UNIT_OF_MERGE (total_lines, level)
+             && (new_vals.nlo < UNIT_OF_MERGE (total_lines, level)
                   || new_vals.nhi < UNIT_OF_MERGE (total_lines, level)))
-          || (new_vals.nlo == lo_avail && new_vals.nhi == hi_avail))
+          || ((new_vals.nlo &&  new_vals.nlo == lo_avail) && (new_vals.nhi && new_vals.nhi == hi_avail)))
         // if (new_vals.nlo + new_vals.nhi > 0)
         {
           chenprintf ("DO_WORK: self inserted.\n");
