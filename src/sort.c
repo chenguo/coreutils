@@ -26,6 +26,10 @@
 #define chendebug 0
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
+#define chrisdebug 0
+#define chrisprintf(format, ...) if (chrisdebug) fprintf (stderr, format, ##__VA_ARGS__)
+
+
 #ifndef FUNC_NAMES_ON
 //#define FUNC_NAMES_ON
 #endif
