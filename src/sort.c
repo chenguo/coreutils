@@ -26,12 +26,11 @@
 #define chendebug 0
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
-#define mikedebug 0
-#define mikeprintf(format, ...) if (mikedebug) fprintf (stderr, format, ##__VA_ARGS__)
-
 #ifndef FUNC_NAMES_ON
 //#define FUNC_NAMES_ON
 #endif
+
+#define MIKE_DEBUG
 
 #include <config.h>
 
@@ -2267,7 +2266,7 @@ static int
 compare (const struct line *a, const struct line *b)
 {
   #ifdef FUNC_NAMES_ON
-  mikeprintf("compare()...");
+  printf("compare()...");
   #endif
   int diff;
   size_t alen, blen;
@@ -2278,13 +2277,8 @@ compare (const struct line *a, const struct line *b)
   if (keylist)
     {
       diff = keycompare (a, b);
-      if (diff || unique || stable) 
-        {
-          #ifdef FUNC_NAMES_ON
-          mikeprintf("compare() returned\n");
-          #endif
-          return diff;
-        }
+      if (diff || unique || stable)
+        return diff;
     }
 
   /* If the keys all compare equal (or no keys were specified)
@@ -2301,7 +2295,7 @@ compare (const struct line *a, const struct line *b)
     diff = alen < blen ? -1 : alen != blen;
 
   #ifdef FUNC_NAMES_ON
-  mikeprintf("compare() returned\n");
+  printf("compare() returned\n");
   #endif
   return reverse ? -diff : diff;
 }
@@ -2695,9 +2689,6 @@ static void
 mergesort (struct line *restrict lines, size_t nlines,
            struct line *restrict temp, bool to_temp)
 {
-  #ifdef FUNC_NAMES_ON
-  mikeprintf("mergesort...");
-  #endif
   if (nlines == 2)
     {
       /* Declare `swap' as int, not bool, to work around a bug
@@ -2744,24 +2735,15 @@ mergesort (struct line *restrict lines, size_t nlines,
         }
       mergelines (dest, nlines, sorted_lo);
     }
-  #ifdef FUNC_NAMES_ON
-  mikeprintf("mergesort() returned\n");
-  #endif
 }
 
 /* Compare function for gdsl heap */
 static long int
 compare_work_units (gdsl_element_t wu1, void *wu2)
 {
-  #ifdef FUNC_NAMES_ON
-  mikeprintf("compare_work_units()...");
-  #endif
   if ((((struct work_unit *) wu1))->level == ((struct work_unit *) wu2)->level)
     return ((((struct work_unit *) wu1)->nlo + ((struct work_unit *) wu1)->nhi))
             < (((struct work_unit *) wu2)->nlo + ((struct work_unit *) wu2)->nhi);
-  #ifdef FUNC_NAMES_ON
-  mikeprintf("compare_work_units() returned\n");
-  #endif
   return ((struct work_unit *) wu1)->level < ((struct work_unit *) wu2)->level;
 }
 
@@ -2831,16 +2813,16 @@ queue_top (struct work_unit_queue *const restrict queue)
 static inline struct work_unit *
 queue_pop (struct work_unit_queue *const restrict queue)
 {
-  // pthread_mutex_lock (&merge_queue.mutex);
-  pthread_spin_lock (&queue->lock);
+//  pthread_mutex_lock (&merge_queue.mutex);
+pthread_spin_lock (&queue->lock);
   struct work_unit *ret = NULL;
 #if CS130_USE_GDSL_HEAP==1
-  // if (!gdsl_heap_is_empty (merge_queue.priority_queue))
-  ret = (struct work_unit *) gdsl_heap_get_top (merge_queue.priority_queue);
-  gdsl_heap_delete_top (merge_queue.priority_queue);
+//  if (!gdsl_heap_is_empty (merge_queue.priority_queue))
+    ret = (struct work_unit *) gdsl_heap_get_top (merge_queue.priority_queue);
+    gdsl_heap_delete_top (merge_queue.priority_queue);
 #endif
-  //  pthread_mutex_unlock (&merge_queue.mutex);
-  pthread_spin_unlock (&queue->lock);
+//  pthread_mutex_unlock (&merge_queue.mutex);
+pthread_spin_unlock (&queue->lock);
   //if (ret) chenprintf ("POP: work unit level %u\n", ret->level);
   return ret;
 }
@@ -2865,7 +2847,7 @@ update_parent (struct work_unit *const restrict parent,
                size_t nlines)
 {
   #ifdef FUNC_NAMES_ON
-  mikeprintf("update_parent()...");
+  printf("update_parent()...");
   #endif
   geneprintf("in update_parent at %d\n", __LINE__);
   geneprintf("\tparent is %p\n", parent);
@@ -2902,7 +2884,7 @@ update_parent (struct work_unit *const restrict parent,
   else
     unlock_work_unit (parent);
   #ifdef FUNC_NAMES_ON
-  mikeprintf("update_parent() returned\n");
+  printf("update_parent() returned\n");
   #endif
 }
 
@@ -2924,7 +2906,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
             size_t n_to_merge)
 {
   #ifdef FUNC_NAMES_ON
-  mikeprintf("merge_work()...");
+  printf("merge_work()...");
   #endif
   /* Merge lines until either 1) one source's available elements runs out,
    * or 2) UNIT_OF_MERGE number of elements have been merged
@@ -2939,13 +2921,11 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
       int cmp = compare (lo - 1, hi - 1);
       if (cmp <= 0)
         {
-          mikeprintf("1\n");
           *--dest = *--lo;
           nlo--;
         }
       else
         {
-          mikeprintf("2\n");
           *--dest = *--hi;
           nhi--;
         }
@@ -2957,14 +2937,12 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   if (!nhi)
     while (lo != end_lo)
       {
-        mikeprintf("3\n");
         *--dest = *--lo;
         nlo--;
       }
   if (!nlo)
     while (hi != end_hi)
       {
-        mikeprintf("4\n");
         *--dest = *--hi;
         nhi--;
       }
@@ -2972,9 +2950,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   geneprintf("Exiting merge_work.\n");
   chenprintf ("MERGE_WORK: end: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   #ifdef FUNC_NAMES_ON
-  mikeprintf("Exiting merge_work.\n");
-  chenprintf ("MERGE_WORK: end: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
-  mikeprintf("merge_work() returned\n");
+  printf("merge_work() returned\n");
   #endif
   return ret;
 }
@@ -2985,7 +2961,7 @@ static void *
 do_work (void *nothing)
 {
   #ifdef FUNC_NAMES_ON
-  mikeprintf("do_work()...");
+  printf("do_work()...");
   #endif
   /* XXX: to test: faster to hold shorter locks and copy
      variables to local scop? */
@@ -3019,9 +2995,6 @@ do_work (void *nothing)
           //geneprintf("work->level==0 at %d\n", __LINE__);
           unlock_work_unit (work);
           queue_insert (&merge_queue, work);
-          #ifdef FUNC_NAMES_ON
-          mikeprintf("do_work() returned\n");
-          #endif
           return NULL;
         }
       struct line *lo = work->lo;
@@ -3101,11 +3074,11 @@ do_work (void *nothing)
       if (level > 1)
         update_parent (parent, parent_end, merged_lines);
 
-      chenprintf ("EOF pushed, exiting.\n");
-      geneprintf("XXX %d\n", __LINE__);
+       // chenprintf ("EOF pushed, exiting.\n");}
+      //geneprintf("XXX %d\n", __LINE__);
     }
   #ifdef FUNC_NAMES_ON
-  mikeprintf("do_work() returned\n");
+  printf("do_work() returned\n");
   #endif
   return NULL;
 }
@@ -3143,7 +3116,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
            struct line **const restrict parent_end)
 {
   #ifdef FUNC_NAMES_ON
-  mikeprintf("sortlines()...");
+  printf("sortlines()...");
   #endif
   if (nlines == 2)
     {
@@ -3224,7 +3197,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
 
     }
   #ifdef FUNC_NAMES_ON
-  mikeprintf("sortlines() returned\n");
+  printf("sortlines() returned\n");
   #endif
 }
 
