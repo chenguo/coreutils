@@ -6,3 +6,5 @@ TODO:
 4) Polish code (i.e. comments, formatting)
 5) Proper linking of GDSL / other heap implementation
      Maybe the trees from gl_oset?
+6) If --threads=1 don't use merge queue (--threads=2 measured faster than
+     so glen's sort so is not a concern)
