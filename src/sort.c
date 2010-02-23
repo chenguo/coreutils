@@ -26,14 +26,11 @@
 #define chendebug 0
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
-<<<<<<< HEAD
 #define chrisdebug 0
 #define chrisprintf(format, ...) if (chrisdebug) fprintf (stderr, format, ##__VA_ARGS__)
 
-=======
 #define mikedebug 0
 #define mikeprintf(format, ...) if (mikedebug) fprintf (stderr, format, ##__VA_ARGS__)
->>>>>>> a717bc9397501fc248d3b15c048bc8088584db81
 
 #ifndef FUNC_NAMES_ON
 //#define FUNC_NAMES_ON
