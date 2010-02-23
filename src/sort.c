@@ -20,10 +20,10 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
-#define genedebug 1
+#define genedebug 0
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
-#define chendebug 0
+#define chendebug 1
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #define chrisdebug 0
@@ -2859,7 +2859,10 @@ update_parent (struct work_unit *const restrict parent,
   geneprintf("\tparent is %p\n", parent);
 
   lock_work_unit (parent);
-  chenprintf ("UPDATE PARENT: parent %p, level %u, nlines %u\n", parent, parent->level, nlines);
+  if (parent_end == &parent->end_lo)
+    chenprintf ("UPDATE PARENT: parent %p, level %u, LO, nlines %u\n", parent, parent->level, nlines);
+  if (parent_end == &parent->end_hi)
+    chenprintf ("UPDATE PARENT: parent %p, level %u, HI, nlines %u\n", parent, parent->level, nlines);
 
   *parent_end -= nlines;  /* note: *parent_end is one of parent->end_(lo|hi) */
 
@@ -2874,16 +2877,14 @@ update_parent (struct work_unit *const restrict parent,
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
   if (!parent->queued
-      && lo_avail >= UNIT_OF_MERGE(total, level)
-      && hi_avail >= UNIT_OF_MERGE(total, level)
-      || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total, level))
-          && (nlo + nhi < 2 * UNIT_OF_MERGE (total, level)))
-      || (nlo == lo_avail && nhi == hi_avail))
+      && ((lo_avail >= UNIT_OF_MERGE(total, level) && hi_avail >= UNIT_OF_MERGE(total, level))
+      || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total, level)) && (nlo + nhi < 2 * UNIT_OF_MERGE (total, level)))
+      || (nlo == lo_avail && nhi == hi_avail)))
     {
       parent->queued = true;
       unlock_work_unit (parent);
       /* If the top level finished: */
-      chenprintf ("UPDATE PARENT: Parent Pushed.\n");
+      chenprintf ("UPDATE PARENT: Parent inserted %p, nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", parent, nlo, nhi, lo_avail, hi_avail);
       queue_insert (&merge_queue, parent);
     }
   else
@@ -2917,6 +2918,7 @@ merge_work (struct line *lo, struct line *hi,
   /* TODO: instead of decrementing NLO, can calculate from difference
      btw *LO passed in and *LO after loop. Same for nhi. */
   geneprintf("Entering merge_work. n_to_merge==%d\n", n_to_merge);
+  chenprintf ("MERGE_WORK: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   
   struct line *lo_orig = lo;
   struct line *hi_orig = hi;
@@ -2969,6 +2971,7 @@ merge_work (struct line *lo, struct line *hi,
       }
   //  */
   struct line_count ret = {lo_orig - lo, hi_orig - hi};
+  chenprintf ("MERGE_WORK: ret: merged_lo %u, merge_hi %u\n", ret.merged_lo, ret.merged_hi);
   geneprintf("Exiting merge_work.\n");
   #ifdef FUNC_NAMES_ON
   mikeprintf("merge_work() returned\n");
@@ -3037,10 +3040,10 @@ do_work (void *nothing)
                                               nlo, nhi, dest,
                                               UNIT_OF_MERGE(total_lines, level));
       //geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
+      chenprintf ("DO_WORK: work unit %p, merged_lo %u, merged_hi %u\n", work, merge_ret.merged_lo, merge_ret.merged_hi);
 
       lock_work_unit (work);
       size_t merged_lines = merge_ret.merged_lo + merge_ret.merged_hi;
-      chenprintf ("DO_WORK: merged_lines %u\n", merged_lines);
       work->dest -= merged_lines;
       work->lo -= merge_ret.merged_lo;
       work->hi -= merge_ret.merged_hi;
@@ -3048,6 +3051,7 @@ do_work (void *nothing)
       work->nhi -= merge_ret.merged_hi;
       nlo = work->nlo;
       nhi = work->nhi;
+      chenprintf ("DO_WORK: work unit %p, merged_lines %u, nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", work, merged_lines, nlo, nhi, work->lo - work->end_lo, work->hi - work->end_hi);
       struct line **const parent_end = work->parent_end;
       struct work_unit *const parent = work->parent;
 
@@ -3057,8 +3061,9 @@ do_work (void *nothing)
       size_t lo_avail = work->lo - work->end_lo;
       size_t hi_avail = work->hi - work->end_hi;
 
+
       if (!work->queued
-          && (lo_avail >= UNIT_OF_MERGE (total_lines, level)
+          && ((lo_avail >= UNIT_OF_MERGE (total_lines, level)
               && hi_avail >= UNIT_OF_MERGE (total_lines, level))
          /* Chen's version: Don't delete */
           // || (new_vals.nlo && !new_vals.nhi)
@@ -3070,10 +3075,10 @@ do_work (void *nothing)
           || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
              && (nlo < UNIT_OF_MERGE (total_lines, level)
                   || nhi < UNIT_OF_MERGE (total_lines, level)))
-          || ((nlo && nlo == lo_avail) && (nhi && nhi == hi_avail)))
+          || ((nlo && nlo == lo_avail) && (nhi && nhi == hi_avail))))
         // if (new_vals.nlo + new_vals.nhi > 0)
         {
-          chenprintf ("DO_WORK: self inserted.\n");
+          chenprintf ("DO_WORK: work unit %p, self inserted.\n", work);
           work->queued = true;
           unlock_work_unit (work);
           queue_insert (&merge_queue, work);
