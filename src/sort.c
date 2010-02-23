@@ -23,7 +23,7 @@
 #define genedebug 1
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
-#define chendebug 1
+#define chendebug 0
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #define chrisdebug 0
@@ -2859,7 +2859,7 @@ update_parent (struct work_unit *const restrict parent,
   geneprintf("\tparent is %p\n", parent);
 
   lock_work_unit (parent);
-  chenprintf ("UPDATE PARENT: parent %p, level %u\n", parent, parent->level);
+  chenprintf ("UPDATE PARENT: parent %p, level %u, nlines %u\n", parent, parent->level, nlines);
 
   *parent_end -= nlines;  /* note: *parent_end is one of parent->end_(lo|hi) */
 
@@ -2895,19 +2895,17 @@ update_parent (struct work_unit *const restrict parent,
 
 struct line_count
 {
-  struct line *lo;
-  struct line *hi;
-  size_t nlo;
-  size_t nhi;
+  size_t merged_lo;
+  size_t merged_hi;
 };
 
 /* Merge into DEST sorted input from LO and HI, up until and including last
    elements found at END_LO and END_HI respectively. */
 inline static struct line_count
-merge_work (struct line *restrict lo, struct line *restrict hi,
-            struct line *const restrict end_lo,
-            struct line *const restrict end_hi,
-            size_t nlo, size_t nhi, struct line *restrict dest,
+merge_work (struct line *lo, struct line *hi,
+            struct line *const end_lo,
+            struct line *const end_hi,
+            size_t nlo, size_t nhi, struct line *dest,
             size_t n_to_merge)
 {
   #ifdef FUNC_NAMES_ON
@@ -2919,7 +2917,10 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   /* TODO: instead of decrementing NLO, can calculate from difference
      btw *LO passed in and *LO after loop. Same for nhi. */
   geneprintf("Entering merge_work. n_to_merge==%d\n", n_to_merge);
-  chenprintf ("MERGE_WORK: nlo %u nhi %u lo_avail %u hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
+  
+  struct line *lo_orig = lo;
+  struct line *hi_orig = hi;
+
 
   while (lo != end_lo && hi != end_hi && n_to_merge-- > 0)
     {
@@ -2937,7 +2938,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
         }
     }
 
-  chenprintf ("MERGE_WORK: phase 2: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
+  //chenprintf ("MERGE_WORK: phase 2: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   /* add the remaining lines from the other source */
   /* TODO: speed up with memcpy. */
 
@@ -2967,9 +2968,8 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
         nhi--;
       }
   //  */
-  struct line_count ret = {lo, hi, nlo, nhi};
+  struct line_count ret = {lo_orig - lo, hi_orig - hi};
   geneprintf("Exiting merge_work.\n");
-  chenprintf ("MERGE_WORK: end: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   #ifdef FUNC_NAMES_ON
   mikeprintf("merge_work() returned\n");
   #endif
@@ -3007,7 +3007,7 @@ do_work (void *nothing)
       lock_work_unit (work);
       work->queued = false;
       //geneprintf("work unit locked at %d. work->level==%d, work->parent==%p, work->parent->lock==%p\n", __LINE__, work->level, work->parent, work->parent?work->parent->lock:NULL);
-      //chenprintf ("DO WORK: pulled work unit level %u, total lines %u\n", work->level, work->total_lines);
+      //chenprintf ("DO WORK: pulled work unit %p, level %u, total lines %u\n", work, work->level, work->total_lines);
 
       size_t level = work->level;
       if (level == 0) /* if is dummy work_unit */
@@ -3027,36 +3027,35 @@ do_work (void *nothing)
       size_t total_lines = work->total_lines;
       unlock_work_unit (work);
 
-      chenprintf ("DO_WORK: work unit pulled, level %u, nlo %u nhi %u lo_avail %u hi_avail %u\n", work->level, nlo, nhi, lo - end_lo, hi - end_hi);
-
+      chenprintf ("DO_WORK: work unit %p level %u nlo %u nhi %u lo_avail %u hi_avail %u\n", work, work->level, nlo, nhi, lo - end_lo, hi - end_hi);
 
       /* Merge work needs to return new nlo, nhi values. New struct. */
       /* TODO: implement breaking. */
       //geneprintf("Current level==%d\n", level);
       //geneprintf("Calling merge_work(\n\tlo==%p, \n\thi==%p, \n\tend_lo==%p, \n\tend_hi==%p, \n\tnlo==%d, \n\tnhi==%d, \n\tdest==%p, \n\tn_to_merge==%d\n", lo, hi, end_lo, end_hi, nlo, nhi, dest, UNIT_OF_MERGE(total_lines, level));
-      struct line_count new_vals = merge_work (lo, hi, end_lo, end_hi,
+      struct line_count merge_ret = merge_work (lo, hi, end_lo, end_hi,
                                               nlo, nhi, dest,
                                               UNIT_OF_MERGE(total_lines, level));
-
       //geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
 
       lock_work_unit (work);
-      size_t merged_lines = lo - new_vals.lo + hi - new_vals.hi;
+      size_t merged_lines = merge_ret.merged_lo + merge_ret.merged_hi;
+      chenprintf ("DO_WORK: merged_lines %u\n", merged_lines);
       work->dest -= merged_lines;
-      work->lo = new_vals.lo;
-      work->hi = new_vals.hi;
-      work->nlo = new_vals.nlo;
-      work->nhi = new_vals.nhi;
+      work->lo -= merge_ret.merged_lo;
+      work->hi -= merge_ret.merged_hi;
+      work->nlo -= merge_ret.merged_lo;
+      work->nhi -= merge_ret.merged_hi;
+      nlo = work->nlo;
+      nhi = work->nhi;
       struct line **const parent_end = work->parent_end;
       struct work_unit *const parent = work->parent;
 
       /* Need to grab updated values for end pointers. */
 //      end_lo = work->end_lo;
 //      end_hi = work->end_hi;
-      size_t lo_avail = new_vals.lo - work->end_lo;
-      size_t hi_avail = new_vals.hi - work->end_hi;
-
-      chenprintf ("DO_WORK: nlo %u, nhi %u, level %u\n", new_vals.nlo, new_vals.nhi, level);
+      size_t lo_avail = work->lo - work->end_lo;
+      size_t hi_avail = work->hi - work->end_hi;
 
       if (!work->queued
           && (lo_avail >= UNIT_OF_MERGE (total_lines, level)
@@ -3069,9 +3068,9 @@ do_work (void *nothing)
           
          /* Gene's version: */
           || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
-             && (new_vals.nlo < UNIT_OF_MERGE (total_lines, level)
-                  || new_vals.nhi < UNIT_OF_MERGE (total_lines, level)))
-          || ((new_vals.nlo &&  new_vals.nlo == lo_avail) && (new_vals.nhi && new_vals.nhi == hi_avail)))
+             && (nlo < UNIT_OF_MERGE (total_lines, level)
+                  || nhi < UNIT_OF_MERGE (total_lines, level)))
+          || ((nlo && nlo == lo_avail) && (nhi && nhi == hi_avail)))
         // if (new_vals.nlo + new_vals.nhi > 0)
         {
           chenprintf ("DO_WORK: self inserted.\n");
@@ -3084,7 +3083,7 @@ do_work (void *nothing)
       else
         unlock_work_unit (work);
 
-      if (new_vals.nlo + new_vals.nhi == 0 && level == 1)
+      if (nlo + nhi == 0 && level == 1)
         {
           //else if (level == 1)
           chenprintf ("*** EOF INSERTED ***\n");
