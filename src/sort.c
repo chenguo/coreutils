@@ -2272,7 +2272,7 @@ static int
 compare (const struct line *a, const struct line *b)
 {
   #ifdef FUNC_NAMES_ON
-  printf("compare()...");
+  mikeprintf("compare()...");
   #endif
   int diff;
   size_t alen, blen;
@@ -2301,7 +2301,7 @@ compare (const struct line *a, const struct line *b)
     diff = alen < blen ? -1 : alen != blen;
 
   #ifdef FUNC_NAMES_ON
-  printf("compare() returned\n");
+  mikeprintf("compare() returned\n");
   #endif
   return reverse ? -diff : diff;
 }
@@ -2853,7 +2853,7 @@ update_parent (struct work_unit *const restrict parent,
                size_t nlines)
 {
   #ifdef FUNC_NAMES_ON
-  printf("update_parent()...");
+  mikeprintf("update_parent()...");
   #endif
   geneprintf("in update_parent at %d\n", __LINE__);
   geneprintf("\tparent is %p\n", parent);
@@ -2889,7 +2889,7 @@ update_parent (struct work_unit *const restrict parent,
   else
     unlock_work_unit (parent);
   #ifdef FUNC_NAMES_ON
-  printf("update_parent() returned\n");
+  mikeprintf("update_parent() returned\n");
   #endif
 }
 
@@ -2911,7 +2911,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
             size_t n_to_merge)
 {
   #ifdef FUNC_NAMES_ON
-  printf("merge_work()...");
+  mikeprintf("merge_work()...");
   #endif
   /* Merge lines until either 1) one source's available elements runs out,
    * or 2) UNIT_OF_MERGE number of elements have been merged
@@ -2971,7 +2971,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   geneprintf("Exiting merge_work.\n");
   chenprintf ("MERGE_WORK: end: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   #ifdef FUNC_NAMES_ON
-  printf("merge_work() returned\n");
+  mikeprintf("merge_work() returned\n");
   #endif
   return ret;
 }
@@ -2982,7 +2982,7 @@ static void *
 do_work (void *nothing)
 {
   #ifdef FUNC_NAMES_ON
-  printf("do_work()...");
+  mikeprintf("do_work()...");
   #endif
   /* XXX: to test: faster to hold shorter locks and copy
      variables to local scop? */
@@ -3098,7 +3098,7 @@ do_work (void *nothing)
       //geneprintf("XXX %d\n", __LINE__);
     }
   #ifdef FUNC_NAMES_ON
-  printf("do_work() returned\n");
+  mikeprintf("do_work() returned\n");
   #endif
   return NULL;
 }
@@ -3136,7 +3136,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
            struct line **const restrict parent_end)
 {
   #ifdef FUNC_NAMES_ON
-  printf("sortlines()...");
+  mikeprintf("sortlines()...");
   #endif
   if (nlines == 2)
     {
@@ -3217,7 +3217,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
 
     }
   #ifdef FUNC_NAMES_ON
-  printf("sortlines() returned\n");
+  mikeprintf("sortlines() returned\n");
   #endif
 }
 
