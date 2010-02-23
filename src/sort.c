@@ -20,7 +20,7 @@
 
    Ørn E. Hansen added NLS support in 1997.  */
 
-#define genedebug 0
+#define genedebug 1
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
 #define chendebug 1
@@ -2885,7 +2885,6 @@ update_parent (struct work_unit *const restrict parent,
       /* If the top level finished: */
       chenprintf ("UPDATE PARENT: Parent Pushed.\n");
       queue_insert (&merge_queue, parent);
-      geneprintf("XXX %d\n", __LINE__);
     }
   else
     unlock_work_unit (parent);
@@ -2941,6 +2940,20 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
   chenprintf ("MERGE_WORK: phase 2: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
   /* add the remaining lines from the other source */
   /* TODO: speed up with memcpy. */
+
+  if (nhi == 0)
+    while (lo != end_lo)
+      {
+        *--dest = *--lo;
+        nlo--;
+      }
+  else if (nlo == 0)
+    while (hi != end_hi)
+      {
+        *--dest = *--hi;
+        nhi--;
+      }
+  /*
   if (!nhi)
     while (lo != end_lo)
       {
@@ -2953,6 +2966,7 @@ merge_work (struct line *restrict lo, struct line *restrict hi,
         *--dest = *--hi;
         nhi--;
       }
+  //  */
   struct line_count ret = {lo, hi, nlo, nhi};
   geneprintf("Exiting merge_work.\n");
   chenprintf ("MERGE_WORK: end: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
@@ -2974,7 +2988,6 @@ do_work (void *nothing)
      variables to local scop? */
   while (1)
     {
-      geneprintf("XXX %d\n", __LINE__);
       /* Loop:
          1. Pop top work unit.
          2. Extract necessary memebers.
