@@ -27,7 +27,7 @@
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #ifndef FUNC_NAMES_ON
-#define FUNC_NAMES_ON
+//#define FUNC_NAMES_ON
 #endif
 
 #define MIKE_DEBUG
@@ -2862,10 +2862,17 @@ update_parent (struct work_unit *const restrict parent,
   size_t hi_avail = parent->hi - parent->end_hi;
   size_t total = parent->total_lines;
 
+  size_t nlo = parent->nlo;
+  size_t nhi = parent->nhi;
+
+
   /* TODO: refactor the 10 to a constant, maybe a define. */
-  if (lo_avail >= UNIT_OF_MERGE(total, level)
+  if (!parent->queued
+      && lo_avail >= UNIT_OF_MERGE(total, level)
       && hi_avail >= UNIT_OF_MERGE(total, level)
-      && !parent->queued)
+      || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total, level))
+          && (nlo + nhi < 2 * UNIT_OF_MERGE (total, level)))
+      || (nlo == lo_avail && nhi == hi_avail))
     {
       parent->queued = true;
       unlock_work_unit (parent);
@@ -3024,19 +3031,27 @@ do_work (void *nothing)
       struct work_unit *const parent = work->parent;
 
       /* Need to grab updated values for end pointers. */
-      end_lo = work->end_lo;
-      end_hi = work->end_hi;
+//      end_lo = work->end_lo;
+//      end_hi = work->end_hi;
+      size_t lo_avail = new_vals.lo - work->end_lo;
+      size_t hi_avail = new_vals.hi - work->end_hi;
 
       chenprintf ("DO_WORK: nlo %u, nhi %u, level %u\n", new_vals.nlo, new_vals.nhi, level);
 
-      if ( !work->queued
-           && ((new_vals.lo - end_lo >= UNIT_OF_MERGE (total_lines, level)
-           && new_vals.hi - end_hi >= UNIT_OF_MERGE (total_lines, level))
+      if (!work->queued
+          && (lo_avail >= UNIT_OF_MERGE (total_lines, level)
+              && hi_avail >= UNIT_OF_MERGE (total_lines, level))
+         /* Chen's version: Don't delete
            || (new_vals.nlo && !new_vals.nhi)
            || (!new_vals.nlo && new_vals.nhi)
            || (new_vals.nlo && new_vals.nlo < UNIT_OF_MERGE (total_lines, level))
            || (new_vals.nhi && new_vals.nhi < UNIT_OF_MERGE (total_lines, level))))
-
+           */
+         /* Gene's version: */
+          || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
+              && (new_vals.nlo < UNIT_OF_MERGE (total_lines, level)
+                  || new_vals.nhi < UNIT_OF_MERGE (total_lines, level)))
+          || (new_vals.nlo == lo_avail && new_vals.nhi == hi_avail))
         // if (new_vals.nlo + new_vals.nhi > 0)
         {
           chenprintf ("DO_WORK: self inserted.\n");
