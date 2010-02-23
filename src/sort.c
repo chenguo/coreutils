@@ -23,7 +23,7 @@
 #define genedebug 0
 #define geneprintf(format, ...) if(genedebug) fprintf(stderr, format, ##__VA_ARGS__)
 
-#define chendebug 1
+#define chendebug 0
 #define chenprintf(format, ...) if (chendebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #define chrisdebug 0
@@ -134,7 +134,7 @@ static struct work_unit_queue merge_queue;
 /* Each call to merge_work() should merge this many elements. This macro
  * should always expand to a positive (read: non-zero) integer
  */
-#define UNIT_OF_MERGE(total, level) ((total) / (10 * (level)) + 1)
+#define UNIT_OF_MERGE(total, level) (total / (50 * level)) + 1
 
 /* Exit statuses.  */
 enum
@@ -2877,9 +2877,19 @@ update_parent (struct work_unit *const restrict parent,
 
   /* TODO: refactor the 10 to a constant, maybe a define. */
   if (!parent->queued
-      && ((lo_avail >= UNIT_OF_MERGE(total, level) && hi_avail >= UNIT_OF_MERGE(total, level))
-      || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total, level)) && (nlo + nhi < 2 * UNIT_OF_MERGE (total, level)))
-      || (nlo == lo_avail && nhi == hi_avail)))
+      && ((lo_avail >= UNIT_OF_MERGE (total, level)
+          && hi_avail >= UNIT_OF_MERGE (total, level))
+     /* Chen's version: Don't delete */
+     //  || (nlo && !nhi)
+     //  || (!nlo && nhi)
+     //  || (nlo && nlo < UNIT_OF_MERGE (total_lines, level))
+     //  || (nhi && nhi < UNIT_OF_MERGE (total_lines, level))))
+          
+     /* Gene's version: */
+     // || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
+         && (nlo < UNIT_OF_MERGE (total, level)
+             || nhi < UNIT_OF_MERGE (total, level))
+      || ((nlo && nlo == lo_avail) && (nhi && nhi == hi_avail))))
     {
       parent->queued = true;
       unlock_work_unit (parent);
@@ -2907,7 +2917,8 @@ merge_work (struct line *lo, struct line *hi,
             struct line *const end_lo,
             struct line *const end_hi,
             size_t nlo, size_t nhi, struct line *dest,
-            size_t n_to_merge)
+            size_t n_to_merge,
+            /* for debug */ struct work_unit *work)
 {
   #ifdef FUNC_NAMES_ON
   mikeprintf("merge_work()...");
@@ -2918,7 +2929,7 @@ merge_work (struct line *lo, struct line *hi,
   /* TODO: instead of decrementing NLO, can calculate from difference
      btw *LO passed in and *LO after loop. Same for nhi. */
   geneprintf("Entering merge_work. n_to_merge==%d\n", n_to_merge);
-  chenprintf ("MERGE_WORK: nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", nlo, nhi, lo - end_lo, hi - end_hi);
+  chenprintf ("MERGE_WORK: work_unit %p, nlo %u, nhi %u, lo_avail %u, hi_avail %u\n", work, nlo, nhi, lo - end_lo, hi - end_hi);
   
   struct line *lo_orig = lo;
   struct line *hi_orig = hi;
@@ -2926,7 +2937,6 @@ merge_work (struct line *lo, struct line *hi,
 
   while (lo != end_lo && hi != end_hi && n_to_merge-- > 0)
     {
-      //chenprintf ("MERGE_WORK: comparing LO %c HI %c\n", (lo-1)->text[0], (hi-1)->text[0]);
       int cmp = compare (lo - 1, hi - 1);
       if (cmp <= 0)
         {
@@ -2946,32 +2956,12 @@ merge_work (struct line *lo, struct line *hi,
 
   if (nhi == 0)
     while (lo != end_lo)
-      {
-        *--dest = *--lo;
-        nlo--;
-      }
+      *--dest = *--lo;
   else if (nlo == 0)
     while (hi != end_hi)
-      {
-        *--dest = *--hi;
-        nhi--;
-      }
-  /*
-  if (!nhi)
-    while (lo != end_lo)
-      {
-        *--dest = *--lo;
-        nlo--;
-      }
-  if (!nlo)
-    while (hi != end_hi)
-      {
-        *--dest = *--hi;
-        nhi--;
-      }
-  //  */
+      *--dest = *--hi;
   struct line_count ret = {lo_orig - lo, hi_orig - hi};
-  chenprintf ("MERGE_WORK: ret: merged_lo %u, merge_hi %u\n", ret.merged_lo, ret.merged_hi);
+  chenprintf ("MERGE_WORK: work_unit %p, ret: merged_lo %u, merge_hi %u\n", work, ret.merged_lo, ret.merged_hi);
   geneprintf("Exiting merge_work.\n");
   #ifdef FUNC_NAMES_ON
   mikeprintf("merge_work() returned\n");
@@ -3038,7 +3028,7 @@ do_work (void *nothing)
       //geneprintf("Calling merge_work(\n\tlo==%p, \n\thi==%p, \n\tend_lo==%p, \n\tend_hi==%p, \n\tnlo==%d, \n\tnhi==%d, \n\tdest==%p, \n\tn_to_merge==%d\n", lo, hi, end_lo, end_hi, nlo, nhi, dest, UNIT_OF_MERGE(total_lines, level));
       struct line_count merge_ret = merge_work (lo, hi, end_lo, end_hi,
                                               nlo, nhi, dest,
-                                              UNIT_OF_MERGE(total_lines, level));
+                                              UNIT_OF_MERGE(total_lines, level), work);
       //geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
       chenprintf ("DO_WORK: work unit %p, merged_lo %u, merged_hi %u\n", work, merge_ret.merged_lo, merge_ret.merged_hi);
 
@@ -3066,15 +3056,15 @@ do_work (void *nothing)
           && ((lo_avail >= UNIT_OF_MERGE (total_lines, level)
               && hi_avail >= UNIT_OF_MERGE (total_lines, level))
          /* Chen's version: Don't delete */
-          // || (new_vals.nlo && !new_vals.nhi)
-          // || (!new_vals.nlo && new_vals.nhi)
-          // || (new_vals.nlo && new_vals.nlo < UNIT_OF_MERGE (total_lines, level))
-          // || (new_vals.nhi && new_vals.nhi < UNIT_OF_MERGE (total_lines, level)))
+         //  || (nlo && !nhi)
+         //  || (!nlo && nhi)
+         //  || (nlo && nlo < UNIT_OF_MERGE (total_lines, level))
+         //  || (nhi && nhi < UNIT_OF_MERGE (total_lines, level))))
           
          /* Gene's version: */
-          || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
+         // || ((lo_avail + hi_avail >= UNIT_OF_MERGE (total_lines, level)) /* may be redundant */
              && (nlo < UNIT_OF_MERGE (total_lines, level)
-                  || nhi < UNIT_OF_MERGE (total_lines, level)))
+                  || nhi < UNIT_OF_MERGE (total_lines, level))
           || ((nlo && nlo == lo_avail) && (nhi && nhi == hi_avail))))
         // if (new_vals.nlo + new_vals.nhi > 0)
         {
