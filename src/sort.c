@@ -29,7 +29,7 @@
 #define chrisdebug 0
 #define chrisprintf(format, ...) if (chrisdebug) fprintf (stderr, format, ##__VA_ARGS__)
 
-#define mikedebug 1
+#define mikedebug 0
 #define mikeprintf(format, ...) if (mikedebug) fprintf (stderr, format, ##__VA_ARGS__)
 
 #ifndef FUNC_NAMES_ON
@@ -3012,7 +3012,7 @@ do_work (void *nothing)
       size_t nlo = work->nlo;
       size_t nhi = work->nhi;
       size_t total_lines = work->total_lines;
-      //unlock_work_unit (work);
+      unlock_work_unit (work);
 
       chenprintf ("DO_WORK: work unit pulled, level %u, nlo %u nhi %u lo_avail %u hi_avail %u\n", work->level, nlo, nhi, lo - end_lo, hi - end_hi);
 
@@ -3027,7 +3027,7 @@ do_work (void *nothing)
 
       //geneprintf("\tmerge_work() returned: \n\tlo==%p, \n\thi==%p, \n\tnlo==%d, \n\tnhi==%d\n", new_vals.lo, new_vals.hi, new_vals.nlo, new_vals.nhi);
 
-      //lock_work_unit (work);
+      lock_work_unit (work);
       size_t merged_lines = lo - new_vals.lo + hi - new_vals.hi;
       work->dest -= merged_lines;
       work->lo = new_vals.lo;
