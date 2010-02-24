@@ -69,6 +69,8 @@
 
 pthread_mutex_t mut;
 pthread_cond_t cond;
+FILE *tfp_global;
+char const *temp_output_global;
 
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
@@ -2924,6 +2926,66 @@ merge_work (struct line *lo, struct line *hi,
   return ret;
 }
 
+
+static inline void
+write_unique (struct line *const restrict write)
+{
+  static struct line *saved = NULL;
+
+  if (!unique)
+    write_bytes (write->text, write->length, tfp_global, temp_output_global);
+  else if (!saved || compare (write, saved))
+    {
+      saved = write;
+      write_bytes (write->text, write->length, tfp_global, temp_output_global);
+    }
+}
+
+
+static inline struct line_count
+merge_work_top (struct line *lo, struct line *hi,
+            struct line *const end_lo,
+            struct line *const end_hi,
+            size_t nlo, size_t nhi, struct line *dest,
+            size_t n_to_merge)
+{
+  struct line *lo_orig = lo;
+  struct line *hi_orig = hi;
+
+  while (lo != end_lo && hi != end_hi && n_to_merge--)
+    {
+      struct line *write;
+      int cmp = compare (lo - 1, hi - 1);
+      if (cmp <= 0)
+        write = --lo;
+      else
+        write = --hi;
+      write_unique (write); 
+    }
+
+  /* add the remaining lines from the other source */
+  nlo -= lo_orig - lo;
+  nhi -= hi_orig - hi;
+  n_to_merge -= lo_orig - lo + hi_orig - hi;
+
+  if (nhi == 0)
+    while (lo != end_lo && n_to_merge--)
+     {
+       lo--;
+       write_unique (lo);
+     }
+  else if (nlo == 0)
+    while (hi != end_hi && n_to_merge--)
+      {
+        hi--;
+        write_unique (hi);
+      }
+  struct line_count ret = {lo_orig - lo, hi_orig - hi};
+  return ret;
+}
+
+
+
 /* Repeatedly completes work in work_units in queue.
    XXX: maybe inline? */
 static void *
@@ -2975,9 +3037,12 @@ do_work (void *nothing)
       size_t total_lines = work->total_lines;
       unlock_work_unit (work);
 
-      struct line_count merge_ret = merge_work (lo, hi, end_lo, end_hi,
-                                              nlo, nhi, dest,
-                                              UNIT_OF_MERGE(total_lines, level));
+      struct line_count merge_ret;
+      if (level > 1)
+        merge_ret = merge_work (lo, hi, end_lo, end_hi, nlo, nhi, dest,
+                          UNIT_OF_MERGE(total_lines, level));
+      else
+        merge_ret = merge_work_top (lo, hi, end_lo, end_hi, nlo, nhi, dest, UNIT_OF_MERGE(total_lines, level));
 
       lock_work_unit (work);
       size_t merged_lines = merge_ret.merged_lo + merge_ret.merged_hi;
@@ -3395,14 +3460,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
-          if (1 < buf.nlines)
-            {
-              pthread_spinlock_t lock;
-              pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
-              struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-                                       0, buf.nlines, 0, NULL, false, &lock};
-              sortlines (line, linebase, nthreads, buf.nlines, &work, NULL);
-            }
           if (buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
@@ -3415,9 +3472,20 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               ++ntemps;
               temp_output = create_temp (&tfp, NULL);
             }
+          tfp_global = tfp;
+          temp_output_global = temp_output;
+
+          if (1 < buf.nlines)
+            {
+              pthread_spinlock_t lock;
+              pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
+              struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
+                                       0, buf.nlines, 0, NULL, false, &lock};
+              sortlines (line, linebase, nthreads, buf.nlines, &work, NULL);
+            }
 
           /* TODO: refactor output to top level merge. */
-          do
+/*          do
             {
               linebase--;
               write_bytes (linebase->text, linebase->length, tfp, temp_output);
@@ -3426,7 +3494,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
                   linebase--;
             }
           while (--buf.nlines);
-
+*/
           xfclose (tfp, temp_output);
 
           /* Free up some resources every once in a while.  */
