@@ -1,15 +1,27 @@
 TODO:
 
 1) Optimize do_work and merge_work further. Merge_work is ~4% of runtime.
+
 2) Find optimal expression for UNIT_OF_MERGE
-3) Clean up if statement in do_work and update_parent
+
+3) Clean up if statement in do_work and update_parent, or at least refactor.
+
 4) Polish code (i.e. comments, formatting)
+
 5) Proper linking of GDSL / other heap implementation
      Maybe the trees from gl_oset?
+
 6) If --threads=1 don't use merge queue (--threads=2 measured faster than
      so glen's sort so is not a concern)
+   (Chen: no need, tests show threads=1 for our code is 5.15s, versus 5.6-ish
+          for old implementation.)
+   
 7) Experiment with outputting at the top level of merge. Will be tricky,
      since we need to track the last line output for sort --unique
      purposes, but we'll be jumping in and out of the call.
+   (Chen: done, it's faster. Only question is to pass pointers or use globals,
+          consult Prof Eggert.)
 
-     Do static varibales persist across function calls?
+8) Update documentation: double check Glen's sort.c documentation (namely,
+      USAGE and options descriptions, should be ok) and update
+      doc/coreutils.texi.

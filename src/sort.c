@@ -1122,8 +1122,9 @@ open_temp (const char *name, pid_t pid)
 }
 
 static void
-write_bytes (const char *buf, size_t n_bytes, FILE *fp, const char *output_file)
+write_bytes (char *buf, size_t n_bytes, FILE *fp, const char *output_file)
 {
+  *(buf + n_bytes - 1) = '\n';
   if (fwrite (buf, 1, n_bytes, fp) != n_bytes)
     die (_("write failed"), output_file);
 }
@@ -1706,6 +1707,7 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
           /* Find and record each line in the just-read input.  */
           while ((p = memchr (ptr, eol, ptrlim - ptr)))
             {
+              *p = '\0';
               ptr = p + 1;
               line--;
               line->text = line_start;
@@ -2659,7 +2661,36 @@ mergelines (struct line *restrict t, size_t nlines,
 {
   size_t nlo = nlines / 2;
   size_t nhi = nlines - nlo;
-  struct line const *hi = t - nlo;
+  struct line *hi = t - nlo;
+/*  struct line *const end_lo = lo - nlo;
+  struct line *const end_hi = hi - nhi;
+
+  for (;;)
+    {
+      if (compare (lo - 1, hi - 1) <= 0)
+        {
+          *--t = *--lo;
+          if (lo == end_lo)
+            return;
+        }
+      else
+        {
+          *--t = *--hi;
+          if (hi == end_hi)
+            {
+              do
+                *--t = *--lo;
+              while (end_lo != lo);
+              return;
+            }
+        }
+    }
+
+  if (end_hi == hi)
+    do
+      *--t = *--lo;
+    while (end_lo != lo);
+*/
 
   for (;;)
     if (compare (lo - 1, hi - 1) <= 0)
