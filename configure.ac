@@ -344,6 +344,9 @@ if test "$elf_sys" = "yes" && \
   gl_ADD_PROG([optional_pkglib_progs], [libstdbuf.so])
 fi
 
+# Check for fcntl.h/posix_fadvise
+AC_CHECK_HEADERS(fcntl.h, [AC_CHECK_FUNCS(posix_fadvise)])
+
 ############################################################################
 mk="$srcdir/src/Makefile.am"
 # Extract all literal names from the definition of $(EXTRA_PROGRAMS)

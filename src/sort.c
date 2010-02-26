@@ -47,6 +47,10 @@
 #include "xnanosleep.h"
 #include "xstrtol.h"
 
+#if HAVE_FCNTL_H
+# include <fcntl.h>
+#endif
+
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
 #endif
@@ -794,6 +798,19 @@ create_temp_file (int *pfd, bool survive_fd_exhaustion)
   return node;
 }
 
+/* Announce the access patterns NOREUSE, SEQUENTIAL, and WILLNEED on the file
+   descriptor FD. Ignore any errors -- this is only advisory.  */
+
+static void
+xfadvise (int fd)
+{
+#if HAVE_POSIX_FADVISE
+  posix_fadvise (fd, 0, 0, POSIX_FADV_NOREUSE);
+  posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL);
+  posix_fadvise (fd, 0, 0, POSIX_FADV_WILLNEED);
+#endif
+}
+
 /* Return a stream for FILE, opened with mode HOW.  A null FILE means
    standard output; HOW should be "w".  When opening for input, "-"
    means standard input.  To avoid confusion, do not return file
@@ -805,10 +822,18 @@ stream_open (const char *file, const char *how)
 {
   if (!file)
     return stdout;
-  if (STREQ (file, "-") && *how == 'r')
+  if (*how == 'r')
     {
-      have_read_stdin = true;
-      return stdin;
+      FILE *fp;
+      if (STREQ (file, "-"))
+        {
+          have_read_stdin = true;
+          fp =  stdin;
+        }
+      else
+        fp = fopen (file, how);
+      xfadvise (fileno (fp));
+      return fp;
     }
   return fopen (file, how);
 }
@@ -1044,6 +1069,7 @@ open_temp (const char *name, pid_t pid)
       break;
     }
 
+  xfadvise (fileno (fp));
   return fp;
 }
 
