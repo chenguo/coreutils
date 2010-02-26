@@ -2999,9 +2999,8 @@ sort (char * const *files, size_t nfiles, char const *output_file,
         
         if (num_devices > 1)
           { 
-            unsigned long int num_threads_to_use = (unsigned long int)fmin (nthreads, num_devices);
+            unsigned long int num_threads_to_use = num_devices-1;
             unsigned long int num_subthreads_per_thread = floor (nthreads / num_threads_to_use);
-          //  unsigned long int num_subthreads_to_distribute = nthreads % num_threads_to_use;
             
             pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
             unsigned long int thread_num = 0;
