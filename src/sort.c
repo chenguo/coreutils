@@ -2926,7 +2926,7 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
     }
 }
 
-/* Thread arguments for sortlines_thread. */
+/* Thread arguments for sort_thread. */
 struct sort_thread_args
 {
   char * const *files;
@@ -2939,6 +2939,9 @@ sort (char * const *files, size_t nfiles, char const *output_file,
   unsigned long int nthreads, bool should_output);
 
 /* Like sort, except with a signature acceptable to pthread_create.  */
+// JOEY: Make threads aware of global device list. When a thread
+// finishes, grab the next disk from the list and sort that
+// This should help with speeding up the chunk of code with a "==1==" comment
 static void *
 sort_thread (void *data)
 {
@@ -2955,10 +2958,10 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 {
 #if HAVE_LIBPTHREAD
   // If we are allowed to use more threads, we should!
-  if (should_output && nfiles > 1 && nthreads > 1)
+  if (should_output && nfiles > 1)
     {
       // Determine which files are on which device
-      char ***device_files = (char ** const *)malloc (nfiles * sizeof (char * const *));
+      char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
       int num_devices = 0;
       int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
       dev_t *device_map = (dev_t *)malloc (nfiles * sizeof (dev_t));
@@ -2999,7 +3002,10 @@ sort (char * const *files, size_t nfiles, char const *output_file,
         
         if (num_devices > 1)
           { 
-            unsigned long int num_threads_to_use = num_devices-1;
+            // Cap to 16x nthreads
+            // This is just a general heuristic. Once you have more threads
+            // running, CPU likely becomes the bottleneck rather than IO
+            unsigned long int num_threads_to_use = (unsigned long int)fmin(num_devices, 16 * nthreads)-1;
             unsigned long int num_subthreads_per_thread = floor (nthreads / num_threads_to_use);
             
             pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
@@ -3020,6 +3026,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
                 
                 // If we've run out of threads, wait for the next one
                 // to finish before we continue
+                // ==1== // Reference for JOEY
                 if (num_threads_running == num_threads_to_use)
                   {
                     pthread_join (threads[thread_num], NULL);
@@ -3088,6 +3095,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           {
             // Free all the memory allocated for device information
             int device_num;
+            // DONT NEED THIS LOOP. num_devices == 1
             for (device_num = 0; device_num < num_devices; device_num++)
               {
                 free (device_files[device_num]);
