@@ -140,7 +140,12 @@ static struct work_unit_queue merge_queue;
  * should always expand to a positive (read: non-zero) integer
  */
 //#define UNIT_OF_MERGE(total, level) (total / (50 * level * (2 << level))) + 1
-#define UNIT_OF_MERGE(total, level) (total / (20 * level * level)) + 1
+
+// best so far
+//#define UNIT_OF_MERGE(total, level) ((total) / (20 * (level) * (level))) + 1
+
+// slightly better than previous ~.81 compared to ~.84
+#define UNIT_OF_MERGE(total, level) (2*(total) / ((level) * (level) * (level))) + 1
 
 
 /* Exit statuses.  */
