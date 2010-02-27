@@ -5,6 +5,7 @@ TODO:
 2) Find optimal expression for UNIT_OF_MERGE
 
 3) Clean up if statement in do_work and update_parent, or at least refactor.
+   (Chen: Done)
 
 4) Polish code (i.e. comments, formatting)
 
@@ -21,7 +22,10 @@ TODO:
      purposes, but we'll be jumping in and out of the call.
    (Chen: done, it's faster. Only question is to pass pointers or use globals,
           consult Prof Eggert.)
+   (Chen: consulted, should be passed, implemented.)
 
 8) Update documentation: double check Glen's sort.c documentation (namely,
       USAGE and options descriptions, should be ok) and update
       doc/coreutils.texi.
+
+9) Find out why sorting 16 lines on 4+ threads doesnt work.

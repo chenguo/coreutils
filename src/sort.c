@@ -49,6 +49,33 @@
 #include "xnanosleep.h"
 #include "xstrtol.h"
 
+static long int read_timer_total = 0;
+static long int read_timer_count = 0;
+
+#define SORT_TIMER_ON 1
+#ifdef SORT_TIMER_ON
+static struct timeval timer_start_tv;
+static struct timeval timer_stop_tv;
+#define START_TIMER() { \
+    gettimeofday(&timer_start_tv, NULL);    \
+}
+#define STOP_TIMER(total, count) {   \
+    gettimeofday(&timer_stop_tv, NULL); \
+    long int diff = ((1000000*timer_stop_tv.tv_sec + timer_stop_tv.tv_usec) \
+                    - (1000000*timer_start_tv.tv_sec + timer_start_tv.tv_usec)); \
+    (total) += diff;    \
+    (count)++;  \
+}
+#define print_timer_stats(msg, total, count) {    \
+    fprintf (stderr, "%s: avg time: %ld usec / %ld reads\n", (msg), (total), (count)); \
+}
+#else
+#define START_TIMER()
+#define STOP_TIMER(total, count)
+define print_timer_stats(msg, total, count)
+#endif
+
+
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
 #endif
@@ -123,8 +150,11 @@ static struct work_unit_queue merge_queue;
 //#define UNIT_OF_MERGE(total, level) ((total) / (20 * (level) * (level))) + 1
 
 // slightly better than previous ~.81 compared to ~.84
-#define UNIT_OF_MERGE(total, level) (2*(total) / ((level) * (level) * (level))) + 1
+//#define UNIT_OF_MERGE(total, level) (2*(total) / ((level) * (level) * (level))) + 1
 
+// Chen: maaaybe faster, 8 runs of each show avg improvement of .003 ish, but could
+// just be variance. Mike, dobule double double check this?
+#define UNIT_OF_MERGE(total, level) (2 * total) / ((2 << level) * (level) * (level)) + 1
 
 /* Exit statuses.  */
 enum
@@ -1635,6 +1665,7 @@ limfield (const struct line *line, const struct keyfield *key)
 static bool
 fillbuf (struct buffer *buf, FILE *fp, char const *file)
 {
+//  START_TIMER();
   struct keyfield const *key = keylist;
   char eol = eolchar;
   size_t line_bytes = buf->line_bytes;
@@ -2839,12 +2870,20 @@ merge_work (struct work_unit *const restrict work, FILE *tfp,
 
   if (work->level > 1)
     {
-      while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
+      while (to_merge--)
         {
           if (compare (work->lo - 1, work->hi - 1) <= 0)
-            *--work->dest = *--work->lo;
+            {
+              *--work->dest = *--work->lo;
+              if (work->lo == work->end_lo)
+                break;
+            }
           else
-            *--work->dest = *--work->hi;
+            {
+              *--work->dest = *--work->hi;
+              if (work->hi == work->end_hi)
+                break;
+            }
         }
 
       merged_lo = lo_orig - work->lo;
@@ -2861,12 +2900,18 @@ merge_work (struct work_unit *const restrict work, FILE *tfp,
     {
       while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
         {
-          struct line *write;
           if (compare (work->lo - 1, work->hi - 1) <= 0)
-            write = --work->lo;
+            {
+              write_unique (--work->lo, tfp, temp_output);
+              if (work->lo == work->end_lo)
+                break;
+            }
           else
-            write = --work->hi;
-          write_unique (write, tfp, temp_output);
+            {
+              write_unique (--work->hi, tfp, temp_output);
+              if (work->hi == work->end_hi)
+                break;
+            }
         }
 
       merged_lo = lo_orig - work->lo;
@@ -2907,24 +2952,12 @@ check_insert (struct work_unit *work)
 
 /* Update parent work unit. */
 static inline void
-update_parent_ (struct work_unit *const restrict parent,
-               struct line **parent_end, size_t merged)
-
-{
-  lock_work_unit (parent);
-  /* Parent_end points to parent->end_(lo|hi) */
-  *parent_end -= merged;
-  check_insert (parent);
-  unlock_work_unit (parent);
-}
-
-static inline void
 update_parent (struct work_unit *const restrict work,
                size_t merged)
 {
   if (work->level == 1 && work->nlo + work->nhi == 0)
     queue_insert (&merge_queue, work->parent);
-  else
+  else if (work->level != 1)
     {
       lock_work_unit (work->parent);
       *work->parent_end -= merged;
@@ -3340,6 +3373,8 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               ++ntemps;
               temp_output = create_temp (&tfp, NULL);
             }
+//STOP_TIMER(read_timer_total, read_timer_count);
+//print_timer_stats("fillbuf()", read_timer_total, read_timer_count);
 
           if (1 < buf.nlines)
             {
