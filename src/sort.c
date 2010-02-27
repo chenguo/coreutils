@@ -32,6 +32,7 @@
 #include "filevercmp.h"
 #include "hard-locale.h"
 #include "hash.h"
+#include "ignore-value.h"
 #include "md5.h"
 #include "physmem.h"
 #include "posixver.h"
@@ -47,8 +48,13 @@
 #include "xnanosleep.h"
 #include "xstrtol.h"
 
-#if HAVE_FCNTL_H
+#if HAVE_FCNTL_H && HAVE_POSIX_FADVISE
 # include <fcntl.h>
+# define XFADV_DONTNEED POSIX_FADV_DONTNEED
+# define XFADV_WILLNEED POSIX_FADV_WILLNEED
+#else
+# define XFADV_DONTNEED 0
+# define XFADV_WILLNEED 0
 #endif
 
 #if HAVE_SYS_RESOURCE_H
@@ -798,16 +804,14 @@ create_temp_file (int *pfd, bool survive_fd_exhaustion)
   return node;
 }
 
-/* Announce the access patterns NOREUSE, SEQUENTIAL, and WILLNEED on the file
-   descriptor FD. Ignore any errors -- this is only advisory.  */
+/* Wrapper for posix_fadvise. Used to predeclare an access pattern for file
+   data. Ignore any errors -- this is only advisory.  */
 
 static void
-xfadvise (int fd)
+xfadvise (int fd, off_t offset, off_t len, int advice)
 {
 #if HAVE_POSIX_FADVISE
-  posix_fadvise (fd, 0, 0, POSIX_FADV_NOREUSE);
-  posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL);
-  posix_fadvise (fd, 0, 0, POSIX_FADV_WILLNEED);
+  ignore_value (posix_fadvise (fd, offset, len, advice));
 #endif
 }
 
@@ -832,7 +836,7 @@ stream_open (const char *file, const char *how)
         }
       else
         fp = fopen (file, how);
-      xfadvise (fileno (fp));
+      xfadvise (fileno (fp), 0, 0, XFADV_WILLNEED);
       return fp;
     }
   return fopen (file, how);
@@ -870,6 +874,7 @@ xfclose (FILE *fp, char const *file)
       break;
 
     default:
+      xfadvise (fileno (fp), 0, 0, XFADV_DONTNEED);
       if (fclose (fp) != 0)
         die (_("close failed"), file);
       break;
@@ -1069,7 +1074,7 @@ open_temp (const char *name, pid_t pid)
       break;
     }
 
-  xfadvise (fileno (fp));
+  xfadvise (fileno (fp), 0, 0, XFADV_WILLNEED);
   return fp;
 }
 
@@ -1637,6 +1642,8 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
                     *ptrlim++ = eol;
                 }
             }
+
+          xfadvise (fileno (fp), 0, ftell (fp), XFADV_DONTNEED);
 
           /* Find and record each line in the just-read input.  */
           while ((p = memchr (ptr, eol, ptrlim - ptr)))
