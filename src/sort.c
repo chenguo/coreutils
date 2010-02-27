@@ -2176,7 +2176,7 @@ keycompare (const struct line *a, const struct line *b)
                     }
                 }
 
-              diff = xmemcoll (copy_a, new_len_a, copy_b, new_len_b);
+              diff = xmemcoll_null (copy_a, new_len_a, copy_b, new_len_b);
 
               if (sizeof buf < size)
                 free (copy_a);
@@ -2186,7 +2186,7 @@ keycompare (const struct line *a, const struct line *b)
           else if (lenb == 0)
             goto greater;
           else
-            diff = xmemcoll (texta, lena, textb, lenb);
+            diff = xmemcoll_null (texta, lena, textb, lenb);
         }
       else if (ignore)
         {
@@ -2310,7 +2310,7 @@ compare (const struct line *a, const struct line *b)
   else if (blen == 0)
     diff = 1;
   else if (hard_LC_COLLATE)
-    diff = xmemcoll (a->text, alen, b->text, blen);
+    diff = xmemcoll_null (a->text, alen, b->text, blen);
   else if (! (diff = memcmp (a->text, b->text, MIN (alen, blen))))
     diff = alen < blen ? -1 : alen != blen;
 
