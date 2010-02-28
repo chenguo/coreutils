@@ -272,6 +272,7 @@ struct work_unit
   size_t total_lines;                /* Total number of lines. */
   size_t level;                 /* Level in merge tree. Top level is 0. */
   struct work_unit *parent;     /* Pointer to parent work unit. */
+  bool queued;                  /* True if work_unit is in hea. */
   pthread_spinlock_t *lock;     /* Some spinlock item. */
 };
 
@@ -2810,6 +2811,7 @@ queue_insert (struct work_unit_queue *const restrict queue,
               struct work_unit *const restrict work)
 {
   pthread_spin_lock (&queue->lock);
+  work->queued = true;
   heap_insert (merge_queue.priority_queue, work);
   pthread_cond_signal (&queue->pop_cond);
   pthread_spin_unlock (&queue->lock);
@@ -2839,6 +2841,7 @@ queue_pop (struct work_unit_queue *const restrict queue)
       pthread_spin_unlock (&queue->lock);
     }
   lock_work_unit (ret);
+  ret->queued = false;
   return ret;
 }
 
@@ -2873,19 +2876,19 @@ merge_work (struct work_unit *const restrict work, FILE *tfp,
 
   if (work->level > 1)
     {
-      while (to_merge--)
+      while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
         {
           if (compare (work->lo - 1, work->hi - 1) <= 0)
             {
               *--work->dest = *--work->lo;
-              if (work->lo == work->end_lo)
-                break;
+              //if (work->lo == work->end_lo)
+              //  break;
             }
           else
             {
               *--work->dest = *--work->hi;
-              if (work->hi == work->end_hi)
-                break;
+              //if (work->hi == work->end_hi)
+              //  break;
             }
         }
 
@@ -2945,9 +2948,14 @@ check_insert (struct work_unit *work)
   size_t nlo = work->nlo;
   size_t nhi = work->nhi;
 
-  if((lo_avail > merge_min && hi_avail > merge_min)
-     && (nlo < merge_min || nhi < merge_min)
-     || (nlo && nlo == lo_avail) && (nhi && nhi == hi_avail))
+  /* Conditions for insertion:
+     1. Work unit must not be in queue.
+     2. Work unit must have > K from each child.
+     3. Condition 2 will never be satisfied, but there are lines from both children.
+     4. Condition 2 will never be satisfied, one child is empty, but the other isn't. */ 
+  if(!work->queued
+     && ((lo_avail >= merge_min && hi_avail >= merge_min)
+         || (lo_avail || hi_avail) && (nlo < merge_min || nhi < merge_min)))
     {
       queue_insert (&merge_queue, work);
     }
@@ -3033,26 +3041,15 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
 {
   if (nlines == 2)
     {
-
       int swap = (0 < compare (&lines[-1], &lines[-2]));
       dest[-1] = lines[-1 - swap];
       dest[-2] = lines[-2 + swap];
-/*    XXX: BROKEN XXX
-      update_parent (parent, parent_end, nlines, 0);
 
-      // Spin off threads to do work.
-      pthread_t *threads;
-      int i;
-      if (nthreads > 1)
-        {
-          threads = xmalloc ((nthreads - 1) * sizeof *threads);
-          for (i = 0; i < nthreads - 1; i++)
-            pthread_create (&threads[i], NULL, do_work, NULL);
-        }
-      do_work (NULL);
-      if (nthreads > 1)
-        for (i = 0; i < nthreads - 1; i++)
-          pthread_join (threads[i], NULL);*/
+      /* Create struct with mininal members needed by update_parent. */
+      struct work_unit work = {NULL, NULL, NULL, NULL, NULL, parent_end, 0, 0,
+                               0, parent->level + 1, parent, false, NULL};
+      update_parent (&work, nlines);
+      work_loop (tfp, temp_output);
     }
   else
     {
@@ -3061,11 +3058,11 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       size_t nhi = nlines - nlo;
       struct line *lo = dest - parent->total_lines;
       struct line *hi = lo - nlo;
-      size_t level = parent->level + 1;
       pthread_spinlock_t lock;
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
       struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlo, nhi,
-                               parent->total_lines, level, parent, &lock};
+                               parent->total_lines, parent->level + 1,
+                               parent, false, &lock};
 
       /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
@@ -3384,7 +3381,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               pthread_spinlock_t lock;
               pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
               struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-                                       0, buf.nlines, 0, NULL, &lock};
+                                       0, buf.nlines, 0, NULL, false, &lock};
               sortlines (line, linebase, nthreads, buf.nlines, &work, NULL,
                          tfp, temp_output);
             }
