@@ -45,7 +45,7 @@
 #include "stdio--.h"
 #include "stdlib--.h"
 #include "strnumcmp.h"
-#include "xmemcoll.h"
+#include "xmemcoll_nul.h"
 #include "xmemxfrm.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"

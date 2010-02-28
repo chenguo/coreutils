@@ -6,7 +6,6 @@ lib/heap.c
 lib/heap.h
 
 Depends-on:
-malloc
 
 configure.ac:
 
