@@ -33,6 +33,7 @@
 #include "filevercmp.h"
 #include "hard-locale.h"
 #include "hash.h"
+#include "heap.h"
 #include "md5.h"
 #include "nproc.h"
 #include "physmem.h"
@@ -127,19 +128,16 @@ enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 # define DEFAULT_TMPDIR "/tmp"
 #endif
 
-#define CS130_USE_GDSL_HEAP 1
-#if CS130_USE_GDSL_HEAP==1
-#include "gdsl_heap_standalone.c"
 
 struct work_unit_queue
 {
-  gdsl_heap_t priority_queue;
+  struct heap *priority_queue;
   pthread_spinlock_t lock;
   pthread_mutex_t pop_mutex;
   pthread_cond_t pop_cond;
 };
+
 static struct work_unit_queue merge_queue;
-#endif
 
 /* Each call to merge_work() should merge this many elements. This macro
  * should always expand to a positive (read: non-zero) integer
@@ -2766,6 +2764,7 @@ sequential_sort (struct line *restrict lines, size_t nlines,
 }
 
 /* Compare function for gdsl heap */
+#if 0
 static long int
 compare_work_units (gdsl_element_t wu1, void *wu2)
 {
@@ -2773,6 +2772,16 @@ compare_work_units (gdsl_element_t wu1, void *wu2)
     return ((((struct work_unit *) wu1)->nlo + ((struct work_unit *) wu1)->nhi))
             < (((struct work_unit *) wu2)->nlo + ((struct work_unit *) wu2)->nhi);
   return ((struct work_unit *) wu1)->level < ((struct work_unit *) wu2)->level;
+}
+#endif
+static int
+compare_work_units (const void *wu1, const void *wu2)
+{
+  const struct work_unit *lhs = (const struct work_unit *) wu1;
+  const struct work_unit *rhs = (const struct work_unit *) wu2;
+  if (lhs->level == rhs->level)
+      return (lhs->nlo + lhs->nhi) < (rhs->nlo + rhs->nhi);
+  return lhs->level < rhs->level;
 }
 
 static inline void
@@ -2791,9 +2800,7 @@ unlock_work_unit (struct work_unit *const restrict work)
 static inline void
 queue_init (struct work_unit_queue *const restrict queue)
 {
-#if CS130_USE_GDSL_HEAP==1
-  queue->priority_queue = gdsl_heap_alloc("wu_pq", NULL, NULL, compare_work_units);
-#endif
+  queue->priority_queue = (struct heap *) heap_alloc (compare_work_units);
   pthread_spin_init (&queue->lock, PTHREAD_PROCESS_PRIVATE);
 }
 
@@ -2803,10 +2810,8 @@ queue_insert (struct work_unit_queue *const restrict queue,
               struct work_unit *const restrict work)
 {
   pthread_spin_lock (&queue->lock);
-#if CS130_USE_GDSL_HEAP==1
-  gdsl_heap_insert (merge_queue.priority_queue, (void *) work);
+  heap_insert (merge_queue.priority_queue, work);
   pthread_cond_signal (&queue->pop_cond);
-#endif
   pthread_spin_unlock (&queue->lock);
 }
 
@@ -2817,8 +2822,7 @@ queue_pop (struct work_unit_queue *const restrict queue)
 {
   pthread_spin_lock (&queue->lock);
   struct work_unit *ret = NULL;
-#if CS130_USE_GDSL_HEAP==1
-  ret = gdsl_heap_remove_top (merge_queue.priority_queue);
+  ret = (struct work_unit *) heap_remove_top (merge_queue.priority_queue);
   pthread_spin_unlock (&queue->lock);
 
   /* No work_unit immediately available. */
@@ -2831,10 +2835,9 @@ queue_pop (struct work_unit_queue *const restrict queue)
 
       /* Try popping queue again. */
       pthread_spin_lock (&queue->lock);
-      ret = gdsl_heap_remove_top (merge_queue.priority_queue);
+      ret = (struct work_unit *) heap_remove_top (merge_queue.priority_queue);
       pthread_spin_unlock (&queue->lock);
     }
-#endif
   lock_work_unit (ret);
   return ret;
 }
@@ -3335,7 +3338,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           }
         bytes_per_line = (mult * sizeof (struct line));
       }
-                               
+
       if (! buf.alloc)
         initbuf (&buf, bytes_per_line,
                  sort_buffer_size (&fp, 1, files, nfiles, bytes_per_line));
@@ -3415,6 +3418,8 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       merge (tempfiles, ntemps, ntemps, output_file);
       free (tempfiles);
     }
+
+  /* TODO: free merge queue */
 }
 
 /* Insert a malloc'd copy of key KEY_ARG at the end of the key list.  */
