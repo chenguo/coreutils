@@ -1,0 +1,27 @@
+Description:
+Compare two NUL delimited strings.
+
+Files:
+lib/xmemcoll_nul.c
+lib/xmemcoll_nul.h
+
+Depends-on:
+memcoll_nul
+gettext-h
+error
+quotearg
+exitfail
+
+configure.ac:
+
+Makefile.am:
+lib_SOURCES += xmemcoll_nul.h xmemcoll_nul.c
+
+Include:
+"xmemcoll_nul.h"
+
+License:
+GPL
+
+Maintainer:
+

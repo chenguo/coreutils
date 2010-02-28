@@ -27,51 +27,20 @@
 
 #include "error.h"
 #include "exitfail.h"
-#include "memcoll.h"
+#include "memcoll_nul.h"
 #include "quotearg.h"
-#include "xmemcoll.h"
+#include "xmemcoll_nul.h"
 
 /* Compare S1 (with length S1LEN) and S2 (with length S2LEN) according
    to the LC_COLLATE locale.  S1 and S2 do not overlap, and are not
-   adjacent.  Temporarily modify the bytes after S1 and S2, but
-   restore their original contents before returning.  Report an error
-   and exit if there is an error.  */
-
-/* Compare S1 (with length S1LEN) and S2 (with length S2LEN) according
-   to the LC_COLLATE locale.  S1 and S2 do not overlap, and are not
-   adjacent.  Temporarily modify the bytes after S1 and S2, but
-   restore their original contents before returning.  Report an error
-   and exit if there is an error.  */
-
-int
-xmemcoll (char *s1, size_t s1len, char *s2, size_t s2len)
-{
-  int diff = memcoll (s1, s1len, s2, s2len);
-  int collation_errno = errno;
-
-  collate_err (s1, s1len, s2, s2len, collation_errno);
-
-  return diff;
-}
-
-/* Like xmemcoll, except for NUL delimited strings; thus it is not necessary
-   to modify S1 or S2. */ 
+   adjacent. S1 and S2 are NUL delimited. Report an error and exit if there
+   is an error.  */
 int
 xmemcoll_nul (char *s1, size_t s1len, char *s2, size_t s2len)
 {
   int diff = memcoll_nul (s1, s1len, s2, s2len);
   int collation_errno = errno;
 
-  collate_err (s1, s1len, s2, s2len, collation_errno);
-
-  return diff;
-}
-
-/* Check for collation error after call to memcoll. */
-static inline int
-collate_err (char *s1, size_t s1len, char *s2, size_t s2len,
-              int collation_errno)
-{
   if (collation_errno)
     {
       error (0, collation_errno, _("string comparison failed"));
@@ -81,5 +50,6 @@ collate_err (char *s1, size_t s1len, char *s2, size_t s2len,
              quotearg_n_style_mem (0, locale_quoting_style, s1, s1len),
              quotearg_n_style_mem (1, locale_quoting_style, s2, s2len));
     }
-}
 
+  return diff;
+}

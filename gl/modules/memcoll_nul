@@ -1,0 +1,24 @@
+Description:
+Locale dependent, NUL delimited memory area comparison.
+
+Files:
+lib/memcoll_nul.h
+lib/memcoll_nul.c
+m4/memcoll_nul.m4
+
+Depends-on:
+memcmp
+
+configure.ac:
+gl_MEMCOLL_NUL
+
+Makefile.am:
+
+Include:
+"memcoll_nul.h"
+
+License:
+GPL
+
+Maintainer:
+
