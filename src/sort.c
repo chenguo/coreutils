@@ -3143,7 +3143,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       char const *file = *files;
       FILE *fp = xfopen (file, "r");
       FILE *tfp;
-      
+
       /* If singlethreaded, the merge uses the memory optimization
          suggested in Knuth exercise 5.2.4-10; see sortlines.  */
       size_t bytes_per_line = (2 * sizeof (struct line)
