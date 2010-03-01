@@ -3003,10 +3003,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
       if (num_devices <= 1)
         {
           // Free all the memory allocated for device information
-          int device_num;
-          // DONT NEED THIS LOOP. num_devices == 1
-          for (device_num = 0; device_num < num_devices; device_num++)
-            free (device_files[device_num]);
+          free (device_files[0]);
           free (device_files);
           free (num_files_on_device);
           free (device_map);
