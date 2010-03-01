@@ -2811,6 +2811,8 @@ queue_init (struct work_unit_queue *const restrict queue, size_t num_reserve)
 {
   queue->priority_queue = (struct heap *) heap_alloc (compare_work_units, num_reserve);
   pthread_spin_init (&queue->lock, PTHREAD_PROCESS_PRIVATE);
+  pthread_mutex_init (&queue->pop_mutex, NULL);
+  pthread_cond_init (&queue->pop_cond, NULL);
 }
 
 /* Insert work unit into priority queue. */
@@ -2887,17 +2889,9 @@ merge_work (struct work_unit *const restrict work, FILE *tfp,
       while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
         {
           if (compare (work->lo - 1, work->hi - 1) <= 0)
-            {
-              *--work->dest = *--work->lo;
-              //if (work->lo == work->end_lo)
-              //  break;
-            }
+            *--work->dest = *--work->lo;
           else
-            {
-              *--work->dest = *--work->hi;
-              //if (work->hi == work->end_hi)
-              //  break;
-            }
+            *--work->dest = *--work->hi;
         }
 
       merged_lo = lo_orig - work->lo;
@@ -2915,17 +2909,9 @@ merge_work (struct work_unit *const restrict work, FILE *tfp,
       while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
         {
           if (compare (work->lo - 1, work->hi - 1) <= 0)
-            {
-              write_unique (--work->lo, tfp, temp_output);
-              if (work->lo == work->end_lo)
-                break;
-            }
+            write_unique (--work->lo, tfp, temp_output);
           else
-            {
-              write_unique (--work->hi, tfp, temp_output);
-              if (work->hi == work->end_hi)
-                break;
-            }
+            write_unique (--work->hi, tfp, temp_output);
         }
 
       merged_lo = lo_orig - work->lo;
@@ -3091,7 +3077,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
         }
       else
         {
-          /* Nthreads = 1, this is a leaf node. Call mergesort. */
+          /* Nthreads = 1, this is a leaf node. Call sequential_sort. */
           sequential_sort (lines - nlo, nhi, hi, true);
           if (1 < nlo)
             sequential_sort (lines, nlo, lo, true);
@@ -3379,8 +3365,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               ++ntemps;
               temp_output = create_temp (&tfp, NULL);
             }
-//STOP_TIMER(read_timer_total, read_timer_count);
-//print_timer_stats("fillbuf()", read_timer_total, read_timer_count);
 
           if (1 < buf.nlines)
             {
