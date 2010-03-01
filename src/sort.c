@@ -2962,30 +2962,31 @@ sort_thread (void *data)
   int num_devices = args->num_devices;
   int *num_files_on_device = args->num_files_on_device;
   unsigned long int num_subthreads_per_thread = args->num_subthreads_per_thread;
-  int i;
+  int cur_dev = 0;
   int ret_val;
 
-  for (i = 0; i < num_devices; i++)
+  while (cur_dev < num_devices)
     {
       char **files = NULL;
 
       // Find next available list of device files to sort
       ret_val = pthread_mutex_lock (&args->mutex);
       pthread_error (ret_val, "error while locking mutex");
-
-      if (NULL == (files = device_files[i]))
+      for (; cur_dev < num_devices; cur_dev++)
         {
-          ret_val = pthread_mutex_unlock (&args->mutex);
-          pthread_error (ret_val, "error while unlocking mutex");
-          continue;
+          if (NULL == (files = device_files[cur_dev]))
+            continue;
+          // Tell other threads that this device list is no longer available
+          device_files[cur_dev] = NULL;
+          break;
         }
-      // Tell other threads that this device list is no longer available
-      device_files[i] = NULL;
-
       ret_val = pthread_mutex_unlock (&args->mutex);
       pthread_error (ret_val, "error while unlocking mutex");
 
-      sort (files, num_files_on_device[i], NULL, num_subthreads_per_thread, false);
+      if (NULL == files)
+        return NULL;
+
+      sort (files, num_files_on_device[cur_dev], NULL, num_subthreads_per_thread, false);
 
       // Free the device list here, no one else has a reference to it anymore
       free (files);
