@@ -2959,9 +2959,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
 #if HAVE_LIBPTHREAD
   // If we are allowed to use more threads, we should!
   if (nfiles <= 1)
-    {
-      sort (files, nfiles, output_file, nthreads, true);
-    }
+    sort (files, nfiles, output_file, nthreads, true);
   else
     {
       // Determine which files are on which device
@@ -3107,8 +3105,8 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
 #endif
 }
 
-/* Sort NFILES FILES into temporary files. Returns the number of temporary
-   files created */
+/* Sort NFILES FILES into OUTPUT_FILE if should_output is true and into
+   temporary files otherwise. */
 
 static void
 sort (char * const *files, size_t nfiles, char const *output_file,
