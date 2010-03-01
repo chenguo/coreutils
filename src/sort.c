@@ -2947,7 +2947,7 @@ sort_thread (void *data)
 {
   struct sort_thread_args const *args = data;
   sort (args->files, args->nfiles, NULL, args->nthreads, false);
-  free (args);
+  free ((void *) args);
   return NULL;
 }
 
@@ -2964,7 +2964,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
       int num_devices = 0;
       int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
-      dev_t *device_map = (dev_t *)malloc (nfiles * sizeof (dev_t));
+      int *device_map = (int *)malloc (nfiles * sizeof (int));
 
       int file_num;
       for (file_num = 0; file_num < nfiles; file_num++)
@@ -2972,7 +2972,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           char * const filename = files[file_num];
           struct stat file_info;
           stat (filename, &file_info);
-          dev_t device_for_file = file_info.st_dev;
+          int device_for_file = major (file_info.st_dev);
 
           // Determine if any other files from this device have been checked
           int device_num;
@@ -3004,7 +3004,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
           // This is just a general heuristic. Once you have more threads
           // running, CPU likely becomes the bottleneck rather than IO
           unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads)-1;
-          unsigned long int num_subthreads_per_thread = floor (nthreads / num_threads_to_use);
+          unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use;
           pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
           unsigned long int thread_num = 0;
           unsigned long int num_threads_running = 0;
