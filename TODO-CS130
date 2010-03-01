@@ -1,16 +1,27 @@
 TODO:
-
 1) Optimize do_work and merge_work further. Merge_work is ~4% of runtime.
+   (Chen: Likely done... At least I'm out of ideas)
 
 2) Find optimal expression for UNIT_OF_MERGE
-
-3) Clean up if statement in do_work and update_parent, or at least refactor.
-   (Chen: Done)
+   (Mike's on it, likely close to done?)
 
 4) Polish code (i.e. comments, formatting)
 
 5) Proper linking of GDSL / other heap implementation
      Maybe the trees from gl_oset?
+   (Chen: Gene's on it... Done?)
+
+8) Update documentation: double check Glen's sort.c documentation (namely,
+      USAGE and options descriptions, should be ok) and update
+      doc/coreutils.texi.
+
+11) Fix lock up bug, occurs most frequently sorting small files using few
+      threads.
+
+
+Completed:
+3) Clean up if statement in do_work and update_parent, or at least refactor.
+   (Done by Chen)
 
 6) If --threads=1 don't use merge queue (--threads=2 measured faster than
      so glen's sort so is not a concern)
@@ -24,8 +35,8 @@ TODO:
           consult Prof Eggert.)
    (Chen: consulted, should be passed, implemented.)
 
-8) Update documentation: double check Glen's sort.c documentation (namely,
-      USAGE and options descriptions, should be ok) and update
-      doc/coreutils.texi.
-
 9) Find out why sorting 16 lines on 4+ threads doesnt work.
+   (Done by Chen; fixed)
+
+10) Test script.
+   (Done by Chris)

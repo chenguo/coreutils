@@ -50,33 +50,6 @@
 #include "xnanosleep.h"
 #include "xstrtol.h"
 
-static long int read_timer_total = 0;
-static long int read_timer_count = 0;
-
-#define SORT_TIMER_ON 1
-#ifdef SORT_TIMER_ON
-static struct timeval timer_start_tv;
-static struct timeval timer_stop_tv;
-#define START_TIMER() { \
-    gettimeofday(&timer_start_tv, NULL);    \
-}
-#define STOP_TIMER(total, count) {   \
-    gettimeofday(&timer_stop_tv, NULL); \
-    long int diff = ((1000000*timer_stop_tv.tv_sec + timer_stop_tv.tv_usec) \
-                    - (1000000*timer_start_tv.tv_sec + timer_start_tv.tv_usec)); \
-    (total) += diff;    \
-    (count)++;  \
-}
-#define print_timer_stats(msg, total, count) {    \
-    fprintf (stderr, "%s: avg time: %ld usec / %ld reads\n", (msg), (total), (count)); \
-}
-#else
-#define START_TIMER()
-#define STOP_TIMER(total, count)
-define print_timer_stats(msg, total, count)
-#endif
-
-
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
 #endif
@@ -128,17 +101,6 @@ enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 # define DEFAULT_TMPDIR "/tmp"
 #endif
 
-
-struct work_unit_queue
-{
-  struct heap *priority_queue;
-  pthread_spinlock_t lock;
-  pthread_mutex_t pop_mutex;
-  pthread_cond_t pop_cond;
-};
-
-static struct work_unit_queue merge_queue;
-
 /* Each call to merge_work() should merge this many elements. This macro
  * should always expand to a positive (read: non-zero) integer
  */
@@ -152,7 +114,7 @@ static struct work_unit_queue merge_queue;
 
 // Chen: maaaybe faster, 8 runs of each show avg improvement of .003 ish, but could
 // just be variance. Mike, dobule double double check this?
-#define UNIT_OF_MERGE(total, level) (2 * total) / ((2 << level) * (level) * (level)) + 1
+#define LINES_TO_MERGE(total, level) (2 * total) / ((2 << level) * (level) * (level)) + 1
 
 /* Exit statuses.  */
 enum
@@ -256,8 +218,8 @@ struct month
   int val;
 };
 
-/* Work to be done at one level in the merge tree. */
-struct work_unit
+/* Binary merge tree node. */
+struct merge_node
 {
   struct line *lo;              /* Available lines merged from LO. */
   struct line *hi;              /* Available lines merged from HI. */
@@ -269,11 +231,21 @@ struct work_unit
                                    parent's LO or HI. */
   size_t nlo;                   /* Lines left to merge on LO half. */
   size_t nhi;                   /* Lines left to merge on HI half. */
-  size_t total_lines;                /* Total number of lines. */
+  size_t total_lines;           /* Total number of lines. */
   size_t level;                 /* Level in merge tree. Top level is 0. */
-  struct work_unit *parent;     /* Pointer to parent work unit. */
+  struct merge_node *parent;    /* Pointer to parent work unit. */
   bool queued;                  /* True if work_unit is in hea. */
   pthread_spinlock_t *lock;     /* Some spinlock item. */
+};
+
+/* Priority queue of merge nodes. */
+struct merge_node_queue
+{
+  struct heap *priority_queue;  /* Priority queue of merge_units. */
+  pthread_spinlock_t lock;      /* Lock to access the queue. */
+  pthread_mutex_t pop_mutex;    /* Mutex for conditional wait. */
+  pthread_cond_t pop_cond;      /* Conditional variable for when queue is
+                                   populated. */
 };
 
 /* FIXME: None of these tables work with multibyte character sets.
@@ -2764,80 +2736,70 @@ sequential_sort (struct line *restrict lines, size_t nlines,
     }
 }
 
-/* Compare function for gdsl heap */
-#if 0
-static long int
-compare_work_units (gdsl_element_t wu1, void *wu2)
-{
-  if ((((struct work_unit *) wu1))->level == ((struct work_unit *) wu2)->level)
-    return ((((struct work_unit *) wu1)->nlo + ((struct work_unit *) wu1)->nhi))
-            < (((struct work_unit *) wu2)->nlo + ((struct work_unit *) wu2)->nhi);
-  return ((struct work_unit *) wu1)->level < ((struct work_unit *) wu2)->level;
-}
-#endif
+/* Priority queue compare function. */
 static int
-compare_work_units (const void *wu1, const void *wu2)
+compare_nodes (const void *node1, const void *node2)
 {
-  const struct work_unit *lhs = (const struct work_unit *) wu1;
-  const struct work_unit *rhs = (const struct work_unit *) wu2;
+  const struct merge_node *lhs = (const struct merge_node *) node1;
+  const struct merge_node *rhs = (const struct merge_node *) node2;
   if (lhs->level == rhs->level)
       return (lhs->nlo + lhs->nhi) < (rhs->nlo + rhs->nhi);
   return lhs->level < rhs->level;
 }
 
 static inline void
-lock_work_unit (struct work_unit *const restrict work)
+lock_node (struct merge_node *const restrict node)
 {
-  pthread_spin_lock (work->lock);
+  pthread_spin_lock (node->lock);
 }
 
 static inline void
-unlock_work_unit (struct work_unit *const restrict work)
+unlock_node (struct merge_node *const restrict node)
 {
-  pthread_spin_unlock (work->lock);
+  pthread_spin_unlock (node->lock);
 }
 
-/* Destroy work unit priority queue. */
+/* Destroy merge queue. */
 static inline void
-queue_destroy (struct work_unit_queue *const restrict queue)
+queue_destroy (struct merge_node_queue *const restrict queue)
 {
   heap_free (queue->priority_queue);
   pthread_spin_destroy (&queue->lock);
 }
 
-/* Initialize work unit priority queue. */
+/* Initialize merge queue. */
 static inline void
-queue_init (struct work_unit_queue *const restrict queue, size_t num_reserve)
+queue_init (struct merge_node_queue *const restrict queue, size_t reserve)
 {
-  queue->priority_queue = (struct heap *) heap_alloc (compare_work_units, num_reserve);
+  queue->priority_queue = (struct heap *) heap_alloc (compare_nodes, reserve);
   pthread_spin_init (&queue->lock, PTHREAD_PROCESS_PRIVATE);
   pthread_mutex_init (&queue->pop_mutex, NULL);
   pthread_cond_init (&queue->pop_cond, NULL);
 }
 
-/* Insert work unit into priority queue. */
+/* Insert work unit into priority queue. Assume NODE is already locked, or
+   not necessary to lock. */
 static inline void
-queue_insert (struct work_unit_queue *const restrict queue,
-              struct work_unit *const restrict work)
+queue_insert (struct merge_node_queue *const restrict queue,
+              struct merge_node *const restrict node)
 {
   pthread_spin_lock (&queue->lock);
-  work->queued = true;
-  heap_insert (merge_queue.priority_queue, work);
+  node->queued = true;
+  heap_insert (queue->priority_queue, node);
   pthread_cond_signal (&queue->pop_cond);
   pthread_spin_unlock (&queue->lock);
 }
 
-/* Pop top work unit off priority queue. Guarantees the return of a
-   spin locked work unit.  */
-static inline struct work_unit *
-queue_pop (struct work_unit_queue *const restrict queue)
+/* Pop priority queue. Return a spin locked node.  */
+static inline struct merge_node *
+queue_pop (struct merge_node_queue *const restrict queue)
 {
   pthread_spin_lock (&queue->lock);
-  struct work_unit *ret = NULL;
-  ret = (struct work_unit *) heap_remove_top (merge_queue.priority_queue);
+  struct merge_node *ret = NULL;
+  ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
   pthread_spin_unlock (&queue->lock);
 
-  /* No work_unit immediately available. */
+  /* Conditional wait if no merge node is immediately available. */
   while (!ret)
     {
       /*  Go into condtional wait. */
@@ -2847,10 +2809,10 @@ queue_pop (struct work_unit_queue *const restrict queue)
 
       /* Try popping queue again. */
       pthread_spin_lock (&queue->lock);
-      ret = (struct work_unit *) heap_remove_top (merge_queue.priority_queue);
+      ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
       pthread_spin_unlock (&queue->lock);
     }
-  lock_work_unit (ret);
+  lock_node (ret);
   ret->queued = false;
   return ret;
 }
@@ -2872,136 +2834,138 @@ write_unique (struct line *const restrict write, FILE *tfp,
     }
 }
 
-/* Merge into DEST sorted input from LO and HI, up until and including last
+/* Merge into DEST sorted input from LO and HI, including last
    elements found at END_LO and END_HI respectively. */
 static inline size_t
-merge_work (struct work_unit *const restrict work, FILE *tfp,
+merge_work (struct merge_node *const restrict node, FILE *tfp,
             const char *temp_output)
 {
-  struct line *lo_orig = work->lo;
-  struct line *hi_orig = work->hi;
-  size_t to_merge = UNIT_OF_MERGE (work->total_lines, work->level);
+  struct line *lo_orig = node->lo;
+  struct line *hi_orig = node->hi;
+  size_t to_merge = LINES_TO_MERGE (node->total_lines, node->level);
   size_t merged_lo;
   size_t merged_hi;
 
-  if (work->level > 1)
+  if (node->level > 1)
     {
-      while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
+      while (node->lo != node->end_lo && node->hi != node->end_hi
+             && to_merge--)
         {
-          if (compare (work->lo - 1, work->hi - 1) <= 0)
-            *--work->dest = *--work->lo;
+          if (compare (node->lo - 1, node->hi - 1) <= 0)
+            *--node->dest = *--node->lo;
           else
-            *--work->dest = *--work->hi;
+            *--node->dest = *--node->hi;
         }
 
-      merged_lo = lo_orig - work->lo;
-      merged_hi = hi_orig - work->hi;
+      merged_lo = lo_orig - node->lo;
+      merged_hi = hi_orig - node->hi;
 
-      if (work->nhi == merged_hi)
-        while (work->lo != work->end_lo && to_merge--)
-          *--work->dest = *--work->lo;
-      else if (work->nlo == merged_lo)
-        while (work->hi != work->end_hi && to_merge--)
-          *--work->dest = *--work->hi;
+      if (node->nhi == merged_hi)
+        while (node->lo != node->end_lo && to_merge--)
+          *--node->dest = *--node->lo;
+      else if (node->nlo == merged_lo)
+        while (node->hi != node->end_hi && to_merge--)
+          *--node->dest = *--node->hi;
     }
   else
     {
-      while (work->lo != work->end_lo && work->hi != work->end_hi && to_merge--)
+      while (node->lo != node->end_lo && node->hi != node->end_hi && to_merge--)
         {
-          if (compare (work->lo - 1, work->hi - 1) <= 0)
-            write_unique (--work->lo, tfp, temp_output);
+          if (compare (node->lo - 1, node->hi - 1) <= 0)
+            write_unique (--node->lo, tfp, temp_output);
           else
-            write_unique (--work->hi, tfp, temp_output);
+            write_unique (--node->hi, tfp, temp_output);
         }
 
-      merged_lo = lo_orig - work->lo;
-      merged_hi = hi_orig - work->hi;
+      merged_lo = lo_orig - node->lo;
+      merged_hi = hi_orig - node->hi;
 
-      if (work->nhi == merged_hi)
-        while (work->lo != work->end_lo && to_merge--)
-          write_unique (--work->lo, tfp, temp_output);
-      else if (work->nlo == merged_lo)
-        while (work->hi != work->end_hi && to_merge--)
-          write_unique (--work->hi, tfp, temp_output);
-      work->dest -= lo_orig - work->lo + hi_orig - work->hi;
+      if (node->nhi == merged_hi)
+        while (node->lo != node->end_lo && to_merge--)
+          write_unique (--node->lo, tfp, temp_output);
+      else if (node->nlo == merged_lo)
+        while (node->hi != node->end_hi && to_merge--)
+          write_unique (--node->hi, tfp, temp_output);
+      node->dest -= lo_orig - node->lo + hi_orig - node->hi;
     }
-  merged_lo = lo_orig - work->lo;
-  merged_hi = hi_orig - work->hi;
-  work->nlo -= merged_lo;
-  work->nhi -= merged_hi;
+  merged_lo = lo_orig - node->lo;
+  merged_hi = hi_orig - node->hi;
+  node->nlo -= merged_lo;
+  node->nhi -= merged_hi;
   return merged_lo + merged_hi;
 }
 
-/* Insert work unit if it passes insertion checks. */
+/* Insert node if it passes insertion checks. */
 static inline bool
-check_insert (struct work_unit *work)
+check_insert (struct merge_node *node,
+              struct merge_node_queue *const restrict queue)
 {
-  size_t lo_avail = work->lo - work->end_lo;
-  size_t hi_avail = work->hi - work->end_hi;
-  size_t merge_min = UNIT_OF_MERGE (work->total_lines, work->level);
-  size_t nlo = work->nlo;
-  size_t nhi = work->nhi;
+  size_t lo_avail = node->lo - node->end_lo;
+  size_t hi_avail = node->hi - node->end_hi;
+  size_t merge_min = LINES_TO_MERGE (node->total_lines, node->level);
+  size_t nlo = node->nlo;
+  size_t nhi = node->nhi;
 
-  /* Conditions for insertion:
-     1. Work unit must not be in queue.
-     2. Work unit must have > K from each child.
-     3. Condition 2 will never be satisfied, but there are lines from both children.
-     4. Condition 2 will never be satisfied, one child is empty, but the other isn't. */ 
-  if(!work->queued
-     && ((lo_avail >= merge_min && hi_avail >= merge_min)
-         || (lo_avail || hi_avail) && (nlo < merge_min || nhi < merge_min)))
+  /* XXX: exmaine */
+  if (!node->queued
+      && ((lo_avail >= merge_min && hi_avail >= merge_min)
+           || ((lo_avail || hi_avail)
+                && (nlo < merge_min || nhi < merge_min))))
     {
-      queue_insert (&merge_queue, work);
+      queue_insert (queue, node);
     }
 }
 
-/* Update parent work unit. */
+/* Update parent merge node. */
 static inline void
-update_parent (struct work_unit *const restrict work,
-               size_t merged)
+update_parent (struct merge_node *const restrict node, size_t merged,
+               struct merge_node_queue *const restrict queue)
 {
-  if (work->level == 1 && work->nlo + work->nhi == 0)
-    queue_insert (&merge_queue, work->parent);
-  else if (work->level != 1)
+  if (node->level == 1 && node->nlo + node->nhi == 0)
+    queue_insert (queue, node->parent);
+  else if (node->level != 1)
     {
-      lock_work_unit (work->parent);
-      *work->parent_end -= merged;
+      lock_node (node->parent);
+      *node->parent_end -= merged;
 
-      check_insert (work->parent);
-      unlock_work_unit (work->parent);
+      check_insert (node->parent, queue);
+      unlock_node (node->parent);
     }
 }
 
 /* Repeatedly completes work in work_units in queue. */
 static void
-work_loop (FILE *tfp, const char *temp_output)
+work_loop (struct merge_node_queue *const restrict queue,
+           FILE *tfp, const char *temp_output)
 {
   while (1)
     {
       /* Get locked work_unit. */
-      struct work_unit *work = queue_pop (&merge_queue);
+      struct merge_node *node = queue_pop (queue);
 
       /* Dummy work unit. Level is never changed, so it's safe to access
          outside of lock. */
-      if (work->level == 0)
+      if (node->level == 0)
         {
-          unlock_work_unit (work);
-          queue_insert (&merge_queue, work);
+          unlock_node (node);
+          queue_insert (queue, node);
           break;
         }
 
-      size_t merged_lines = merge_work (work, tfp, temp_output);
+      size_t merged_lines = merge_work (node, tfp, temp_output);
 
-      check_insert (work);
-      update_parent (work, merged_lines);
-      unlock_work_unit (work);
+      check_insert (node, queue);
+      update_parent (node, merged_lines, queue);
+      unlock_node (node);
     }
 }
 
 
 static void sortlines (struct line *restrict, struct line *restrict,
-                       unsigned long int, size_t, struct work_unit *restrict,
-                       struct line **restrict, FILE *, const char *);
+                       unsigned long int, size_t, struct merge_node *restrict,
+                       struct line **restrict,
+                       struct merge_node_queue *const restrict,
+                       FILE *, const char *);
  
 /* Thread arguments for sortlines_thread. */
 struct thread_args
@@ -3010,8 +2974,9 @@ struct thread_args
   struct line *dest;
   unsigned long int nthreads;
   size_t nlines;
-  struct work_unit *parent;
+  struct merge_node *parent;
   struct line **parent_end;
+  struct merge_node_queue *const restrict merge_queue;
   FILE *tfp;
   const char *output_temp;
 };
@@ -3022,16 +2987,18 @@ sortlines_thread (void *data)
 {
   struct thread_args const *args = data;
   sortlines (args->lines, args->dest, args->nthreads, args->nlines,
-             args->parent, args->parent_end, args->tfp, args->output_temp);
+             args->parent, args->parent_end, args->merge_queue,
+             args->tfp, args->output_temp);
   return NULL;
 }
 
 static void
 sortlines (struct line *restrict lines, struct line *restrict dest,
            unsigned long int nthreads, size_t nlines,
-           struct work_unit *const restrict parent,
-           struct line **const restrict parent_end, FILE *tfp,
-           const char *temp_output)
+           struct merge_node *const restrict parent,
+           struct line **const restrict parent_end,
+           struct merge_node_queue *const restrict merge_queue,
+           FILE *tfp, const char *temp_output)
 {
   if (nlines == 2)
     {
@@ -3040,30 +3007,33 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       dest[-2] = lines[-2 + swap];
 
       /* Create struct with mininal members needed by update_parent. */
-      struct work_unit work = {NULL, NULL, NULL, NULL, NULL, parent_end, 0, 0,
-                               0, parent->level + 1, parent, false, NULL};
-      update_parent (&work, nlines);
-      work_loop (tfp, temp_output);
+      struct merge_node node =
+        {NULL, NULL, NULL, NULL, NULL, parent_end, 0, 0, 0,
+         parent->level + 1, parent, false, NULL};
+
+      update_parent (&node, nlines, merge_queue);
+      work_loop (merge_queue, tfp, temp_output);
     }
   else
     {
-      /* Create work unit. */
+      /* Create merge node. */
       size_t nlo = nlines / 2;
       size_t nhi = nlines - nlo;
       struct line *lo = dest - parent->total_lines;
       struct line *hi = lo - nlo;
       pthread_spinlock_t lock;
       pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
-      struct work_unit work = {lo, hi, lo, hi, dest, parent_end, nlo, nhi,
-                               parent->total_lines, parent->level + 1,
-                               parent, false, &lock};
+      struct merge_node node =
+        {lo, hi, lo, hi, dest, parent_end, nlo, nhi, parent->total_lines,
+         parent->level + 1, parent, false, &lock};
 
       /* Calculate thread arguments. */
       unsigned long int child_subthreads = nthreads / 2;
       unsigned long int my_subthreads = nthreads - child_subthreads;
       pthread_t thread;
       struct thread_args args = {lines - nlo, hi, child_subthreads, nhi,
-                                 &work, &work.end_hi, tfp, temp_output};
+                                 &node, &node.end_hi, merge_queue,
+                                 tfp, temp_output};
 
       if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
           && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
@@ -3071,8 +3041,8 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
           /* Guarantee that nlo and nhi are each at least 2.  */
           verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-          sortlines (lines, lo, my_subthreads, nlo, &work, &work.end_lo, tfp,
-                     temp_output);
+          sortlines (lines, lo, my_subthreads, nlo, &node, &node.end_lo, 
+                     merge_queue, tfp, temp_output);
           pthread_join (thread, NULL);
         }
       else
@@ -3084,13 +3054,12 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
           else
             lo[-1] = lines[-1];
 
-          /* Update work unit. No need to lock yet. */
-          work.end_lo = lo - nlo;
-          work.end_hi = hi - nhi;
+          /* Update merge node. No need to lock yet. */
+          node.end_lo = lo - nlo;
+          node.end_hi = hi - nhi;
 
-          /* Push work unit, initiate loop. */
-          queue_insert (&merge_queue, &work);
-          work_loop (tfp, temp_output);
+          queue_insert (merge_queue, &node);
+          work_loop (merge_queue, tfp, temp_output);
         }
     }
 }
@@ -3313,8 +3282,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       FILE *fp = xfopen (file, "r");
       FILE *tfp;
 
-      /* If singlethreaded, the merge uses the memory optimization
-         suggested in Knuth exercise 5.2.4-10; see sortlines.  */
       size_t bytes_per_line;
       {
         /* Get log P + 1. */
@@ -3368,14 +3335,16 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
           if (1 < buf.nlines)
             {
+              struct merge_node_queue merge_queue;
               queue_init (&merge_queue, 2 * nthreads);
 
               pthread_spinlock_t lock;
               pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
-              struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-                                       0, buf.nlines, 0, NULL, false, &lock};
-              sortlines (line, linebase, nthreads, buf.nlines, &work, NULL,
-                         tfp, temp_output);
+              struct merge_node node =
+                {NULL, NULL, NULL, NULL, NULL, NULL, 0,
+                 0, buf.nlines, 0, NULL, false, &lock};
+              sortlines (line, linebase, nthreads, buf.nlines, &node, NULL,
+                         &merge_queue, tfp, temp_output);
 
               queue_destroy (&merge_queue);
             }
