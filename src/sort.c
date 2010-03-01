@@ -2953,12 +2953,16 @@ sort_thread (void *data)
 
 /* Sort NFILES FILES onto OUTPUT_FILE. */
 static void
-sort (char * const *files, size_t nfiles, char const *output_file,
-      unsigned long int nthreads, bool should_output)
+sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
+                unsigned long int nthreads)
 {
 #if HAVE_LIBPTHREAD
   // If we are allowed to use more threads, we should!
-  if (should_output && nfiles > 1)
+  if (nfiles <= 1)
+    {
+      sort (files, nfiles, output_file, nthreads, true);
+    }
+  else
     {
       // Determine which files are on which device
       char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
@@ -2998,7 +3002,20 @@ sort (char * const *files, size_t nfiles, char const *output_file,
             num_files_on_device[device_num] = num_files + 1;
         }
 
-      if (num_devices > 1)
+      if (num_devices <= 1)
+        {
+          // Free all the memory allocated for device information
+          int device_num;
+          // DONT NEED THIS LOOP. num_devices == 1
+          for (device_num = 0; device_num < num_devices; device_num++)
+            free (device_files[device_num]);
+          free (device_files);
+          free (num_files_on_device);
+          free (device_map);
+
+          sort (files, nfiles, output_file, nthreads, true);
+        }
+      else
         {
           // Cap to 16x nthreads
           // This is just a general heuristic. Once you have more threads
@@ -3084,20 +3101,19 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
           return;
         }
-      else
-        {
-          // Free all the memory allocated for device information
-          int device_num;
-          // DONT NEED THIS LOOP. num_devices == 1
-          for (device_num = 0; device_num < num_devices; device_num++)
-            free (device_files[device_num]);
-          free (device_files);
-          free (num_files_on_device);
-          free (device_map);
-        }
     }
+#else
+  sort (files, nfiles, output_file, nthreads, true);
 #endif
+}
 
+/* Sort NFILES FILES into temporary files. Returns the number of temporary
+   files created */
+
+static void
+sort (char * const *files, size_t nfiles, char const *output_file,
+      unsigned long int nthreads, const bool should_output)
+{
   struct buffer buf;
   size_t ntemps = 0;
   bool output_file_created = false;
@@ -3949,7 +3965,7 @@ main (int argc, char **argv)
             continue;
         }
 
-      sort (files, nfiles, outfile, nthreads, true);
+      sort_multidisk (files, nfiles, outfile, nthreads);
     }
 
   if (have_read_stdin && fclose (stdin) == EOF)
