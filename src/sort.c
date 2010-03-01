@@ -3058,8 +3058,8 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           // Cap to 16x nthreads
           // This is just a general heuristic. Once you have more threads
           // running, CPU likely becomes the bottleneck rather than IO
-          unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads)-1;
-          unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use;
+          unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads);
+          unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use + 1;
           pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
           unsigned long int thread_num = 0;
           int ret_val;
