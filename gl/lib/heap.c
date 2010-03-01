@@ -76,6 +76,7 @@ void
 heap_free (struct heap *heap)
 {
     assert (heap != NULL);
+    free (heap->array);
     free (heap);
 }
 

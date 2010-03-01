@@ -2797,6 +2797,14 @@ unlock_work_unit (struct work_unit *const restrict work)
   pthread_spin_unlock (work->lock);
 }
 
+/* Destroy work unit priority queue. */
+static inline void
+queue_destroy (struct work_unit_queue *const restrict queue)
+{
+  heap_free (queue->priority_queue);
+  pthread_spin_destroy (&queue->lock);
+}
+
 /* Initialize work unit priority queue. */
 static inline void
 queue_init (struct work_unit_queue *const restrict queue, size_t num_reserve)
@@ -3310,8 +3318,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
   size_t ntemps = 0;
   bool output_file_created = false;
 
-  queue_init (&merge_queue, 2 * nthreads);
-
   buf.alloc = 0;
 
   while (nfiles)
@@ -3378,12 +3384,16 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
           if (1 < buf.nlines)
             {
+              queue_init (&merge_queue, 2 * nthreads);
+
               pthread_spinlock_t lock;
               pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
               struct work_unit work = {NULL, NULL, NULL, NULL, NULL, NULL, 0,
                                        0, buf.nlines, 0, NULL, false, &lock};
               sortlines (line, linebase, nthreads, buf.nlines, &work, NULL,
                          tfp, temp_output);
+
+              queue_destroy (&merge_queue);
             }
 
           xfclose (tfp, temp_output);
@@ -3415,8 +3425,6 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       merge (tempfiles, ntemps, ntemps, output_file);
       free (tempfiles);
     }
-
-  /* TODO: free merge queue */
 }
 
 /* Insert a malloc'd copy of key KEY_ARG at the end of the key list.  */
