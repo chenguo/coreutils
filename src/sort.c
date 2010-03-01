@@ -3017,7 +3017,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           char * const filename = files[file_num];
           struct stat file_info;
           stat (filename, &file_info);
-          int device_for_file = major (file_info.st_dev);
+          int device_for_file = minor (file_info.st_dev);
 
           // Determine if any other files from this device have been checked
           int device_num;
