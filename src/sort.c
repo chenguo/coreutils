@@ -2799,9 +2799,9 @@ unlock_work_unit (struct work_unit *const restrict work)
 
 /* Initialize work unit priority queue. */
 static inline void
-queue_init (struct work_unit_queue *const restrict queue)
+queue_init (struct work_unit_queue *const restrict queue, size_t num_reserve)
 {
-  queue->priority_queue = (struct heap *) heap_alloc (compare_work_units);
+  queue->priority_queue = (struct heap *) heap_alloc (compare_work_units, num_reserve);
   pthread_spin_init (&queue->lock, PTHREAD_PROCESS_PRIVATE);
 }
 
@@ -3310,7 +3310,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
   size_t ntemps = 0;
   bool output_file_created = false;
 
-  queue_init (&merge_queue);
+  queue_init (&merge_queue, 2 * nthreads);
 
   buf.alloc = 0;
 

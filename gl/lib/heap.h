@@ -27,11 +27,12 @@
 struct heap
 {
   void **array;     /* array[0] is not used */
+  size_t capacity;  /* Array size */
   size_t count;     /* Used as index to last element. Also is num of items. */
   int (*compare)(const void *, const void *);
 };
 
-struct heap *heap_alloc (int (*)(const void *, const void *));
+struct heap *heap_alloc (int (*)(const void *, const void *), size_t);
 void heap_free (struct heap *);
 int heap_insert (struct heap *heap, void *item);
 void *heap_remove_top (struct heap *heap);

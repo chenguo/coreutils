@@ -39,16 +39,17 @@ static void heapify_up (void **, size_t,
 /* Implementation (alphabetical order) */
 
 struct heap *
-heap_alloc (int (*compare)(const void *, const void *))
+heap_alloc (int (*compare)(const void *, const void *), size_t n_reserve)
 {
   struct heap *heap;
-
-  heap = (struct heap *) malloc (sizeof heap);
-
+  heap = (struct heap *) malloc (sizeof *heap);
   if (!heap)
     return NULL;
 
-  heap->array = (void **) malloc (sizeof *(heap->array));
+  if (n_reserve <= 0)
+      n_reserve = 1;
+
+  heap->array = (void **) malloc (n_reserve * sizeof *(heap->array));
   if (!heap->array)
     {
       free (heap);
@@ -56,6 +57,7 @@ heap_alloc (int (*compare)(const void *, const void *))
     }
 
   heap->array[0] = NULL;
+  heap->capacity = n_reserve;
   heap->count = 0;
   heap->compare = compare ? compare : heap_default_compare;
 
@@ -83,11 +85,15 @@ heap_insert (struct heap *heap, void *item)
 {
   assert (heap != NULL);
 
-  size_t new_size = (2 + heap->count) * sizeof (void *);
-  heap->array = (void **) realloc (heap->array, new_size);
+  if (heap->capacity - 1 <= heap->count)
+    {
+      size_t new_size = (2 + heap->count) * sizeof *(heap->array);
+      heap->array = (void **) realloc (heap->array, new_size);
+      heap->capacity = (2 + heap->count);
 
-  if (!heap->array)
-    return -1;
+      if (!heap->array)
+        return -1;
+    }
 
   heap->array[++heap->count] = item;
   heapify_up (heap->array, heap->count, heap->compare);
