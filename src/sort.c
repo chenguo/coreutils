@@ -2929,25 +2929,67 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
 /* Thread arguments for sort_thread. */
 struct sort_thread_args
 {
-  char * const *files;
-  size_t nfiles;
-  unsigned long int nthreads;
+  char ***device_files;
+  int num_devices;
+  int *num_files_on_device;
+  unsigned long int num_subthreads_per_thread;
+  pthread_mutex_t mutex;
 };
 
 static void 
 sort (char * const *files, size_t nfiles, char const *output_file, 
   unsigned long int nthreads, bool should_output);
 
-/* Like sort, except with a signature acceptable to pthread_create.  */
-// JOEY: Make threads aware of global device list. When a thread
-// finishes, grab the next disk from the list and sort that
-// This should help with speeding up the chunk of code with a "==1==" comment
+#define pthread_error(ret_val, msg) {                               \
+    if (ret_val)                                                    \
+      {                                                             \
+        error (SORT_FAILURE, 0, _("%s - %d: %s\n"), msg, ret_val,   \
+               strerror (ret_val));                                 \
+        exit (SORT_FAILURE);                                        \
+      }                                                             \
+}
+
+/* Tries to sort files from one device at a time. Multiple instances can run
+   with the same arguments concurrently. Each instance will sort the files from
+   a different device. */
+
 static void *
 sort_thread (void *data)
 {
-  struct sort_thread_args const *args = data;
-  sort (args->files, args->nfiles, NULL, args->nthreads, false);
-  free ((void *) args);
+#if HAVE_LIBPTHREAD
+  struct sort_thread_args *args = data;
+  char ***device_files = args->device_files;
+  int num_devices = args->num_devices;
+  int *num_files_on_device = args->num_files_on_device;
+  unsigned long int num_subthreads_per_thread = args->num_subthreads_per_thread;
+  int i;
+  int ret_val;
+
+  for (i = 0; i < num_devices; i++) {
+    char **files = NULL;
+
+    // Find next available list of device files to sort
+    ret_val = pthread_mutex_lock (&args->mutex);
+    pthread_error (ret_val, "error while locking mutex");
+
+    if (NULL == (files = device_files[i]))
+      {
+        ret_val = pthread_mutex_unlock (&args->mutex);
+        pthread_error (ret_val, "error while unlocking mutex");
+        continue;
+      }
+    // Tell other threads that this device list is no longer available
+    device_files[i] = NULL;
+
+    pthread_mutex_unlock (&args->mutex);
+    pthread_error (ret_val, "error while unlocking mutex");
+
+    sort (files, num_files_on_device[i], NULL, num_subthreads_per_thread, false);
+
+    // Free the device list here, no one else has a reference to it anymore
+    free (files);
+  }
+#endif
   return NULL;
 }
 
@@ -2999,6 +3041,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
             device_files[device_num][num_files] = filename;
             num_files_on_device[device_num] = num_files + 1;
         }
+      free (device_map);
 
       if (num_devices <= 1)
         {
@@ -3006,7 +3049,6 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (device_files[0]);
           free (device_files);
           free (num_files_on_device);
-          free (device_map);
 
           sort (files, nfiles, output_file, nthreads, true);
         }
@@ -3019,44 +3061,23 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use;
           pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
           unsigned long int thread_num = 0;
-          unsigned long int num_threads_running = 0;
-          int device_num;
+          int ret_val;
 
-          for (device_num = 0; device_num < num_devices; device_num++)
+          struct sort_thread_args args = {
+            .device_files = device_files,
+            .num_devices = num_devices,
+            .num_files_on_device = num_files_on_device,
+            .num_subthreads_per_thread = num_subthreads_per_thread};
+
+          ret_val = pthread_mutex_init (&args.mutex, NULL);
+          pthread_error (ret_val, "error while init'n mutex");
+
+          // Spawn threads to sort the device lists. The threads will keep
+          // running until all of the device lists have been sorted.
+          for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
             {
-              // If there's only one more device's files to sort,
-              // just do it on the main thread
-              if (num_devices - device_num == 1)
-                {
-                  sort (device_files[device_num], num_files_on_device[device_num], 
-                    NULL, num_subthreads_per_thread, false);
-                  continue;
-                }
-                
-              // If we've run out of threads, wait for the next one
-              // to finish before we continue
-              // ==1== // Reference for JOEY
-              if (num_threads_running == num_threads_to_use)
-                {
-                  pthread_join (threads[thread_num], NULL);
-                  num_threads_running--;
-                }
-
-              // The thread is responsible for freeing the args
-              pthread_t thread;
-              struct sort_thread_args *args = (struct sort_thread_args *)malloc (sizeof(struct sort_thread_args));
-              args->files = device_files[device_num];
-              args->nfiles = num_files_on_device[device_num];
-              args->nthreads = num_subthreads_per_thread;
-              pthread_create (&thread, NULL, sort_thread, args);
-
-              threads[thread_num] = thread;
-              thread_num++;
-              num_threads_running++;
-
-              // Treat threads like a circular array
-              if (thread_num == num_threads_to_use)
-                thread_num = 0;
+              ret_val = pthread_create (&threads[thread_num], NULL, sort_thread, &args);
+              pthread_error (ret_val, "error while creating a thread");
             }
 
           // Wait for each thread to finish before merging
@@ -3066,35 +3087,35 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           // functional
           for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
             {
-              pthread_t thread = threads[thread_num];
-              pthread_join (thread, NULL);
+              ret_val = pthread_join (threads[thread_num], NULL);
+              pthread_error (ret_val, "error while joining a thread");
             }
 
-          // Merge all the temp files created by the threads
-          size_t i;
-          size_t ntemps = total_num_temps;
-
-          struct tempnode *node = temphead;
-          struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
-          for (i = 0; node; i++)
-            {
-              tempfiles[i].name = node->name;
-              tempfiles[i].pid = node->pid;
-              node = node->next;
-            }
-          merge (tempfiles, ntemps, ntemps, output_file);
-          free (tempfiles);
-
-          free(threads);
+          free (threads);
 
           // Free all the memory allocated for device information
-          for (device_num = 0; device_num < num_devices; device_num++)
-            free (device_files[device_num]);
           free (device_files);
           free (num_files_on_device);
-          free (device_map);
 
-          return;
+          ret_val = pthread_mutex_destroy (&args.mutex);
+          pthread_error (ret_val, "error while destroying mutex");
+
+          // Merge all the temp files created by the threads
+          {
+            size_t i;
+            size_t ntemps = total_num_temps;
+
+            struct tempnode *node = temphead;
+            struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
+            for (i = 0; node; i++)
+              {
+                tempfiles[i].name = node->name;
+                tempfiles[i].pid = node->pid;
+                node = node->next;
+              }
+            merge (tempfiles, ntemps, ntemps, output_file);
+            free (tempfiles);
+          }
         }
     }
 #else
