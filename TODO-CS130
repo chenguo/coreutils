@@ -15,9 +15,6 @@ TODO:
       USAGE and options descriptions, should be ok) and update
       doc/coreutils.texi.
 
-11) Fix lock up bug, occurs most frequently sorting small files using few
-      threads.
-
 
 Completed:
 3) Clean up if statement in do_work and update_parent, or at least refactor.
@@ -39,4 +36,8 @@ Completed:
    (Done by Chen; fixed)
 
 10) Test script.
-   (Done by Chris)
+    (Done by Chris)
+
+11) Fix lock up bug, occurs most frequently sorting small files using few
+      threads.
+    (Done by Chen: cost of 0.6% speed)
