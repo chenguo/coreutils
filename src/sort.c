@@ -46,6 +46,8 @@
 #include "xmemxfrm.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
+#include "math.h"
+#include "pthread.h"
 
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
@@ -2327,6 +2329,16 @@ open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps)
 
   return i;
 }
+struct merge_args
+{
+  struct sortfile *files;
+  size_t ntemps;
+  size_t nfiles;
+  FILE *ofp;
+  char const *output_file;
+  FILE **fps;
+};
+
 
 /* Merge lines from FILES onto OFP.  NTEMPS is the number of temporary
    files (all of which are at the start of the FILES array), and
@@ -2337,7 +2349,7 @@ open_input_files (struct sortfile *files, size_t nfiles, FILE ***pfps)
    the output file is standard output.  */
 
 static void
-mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
+mergefps_orig (struct sortfile *files, size_t ntemps, size_t nfiles,
           FILE *ofp, char const *output_file, FILE **fps)
 {
   struct buffer *buffer = xnmalloc (nfiles, sizeof *buffer);
@@ -2526,7 +2538,113 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   free(ord);
   free(base);
   free(cur);
+  pthread_exit(NULL);
 }
+
+static void
+*mergefps_thread(void *data)
+{
+  struct merge_args* args = (struct merge_args*)data;
+  mergefps_orig(args->files, args->ntemps, args->nfiles, args->ofp, args->output_file, args->fps);
+}
+
+static void
+mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
+          FILE *ofp, char const *output_file, FILE **fps)
+{
+  size_t nthreads = nfiles/2;
+  size_t oddthread = nfiles%2;
+  size_t nmerges = (int)ceil(log(nfiles)/log(2));
+  size_t nNewTemps = nmerges;
+  struct sortfile *newtemps = malloc(nmerges*sizeof(struct sortfile));
+  FILE **newtemps_ptrs = malloc(nmerges*sizeof(FILE*));
+  struct merge_args *args = malloc(nthreads*sizeof(struct merge_args));
+
+  size_t nTemps_used = 0;
+  size_t nFiles_used = 0;
+  size_t nNewTemps_used = 0;
+
+  size_t mi = 0; //Merge index to manage temporary output files
+  size_t i;
+  //Set up the new temp files for each merge thread
+  for(i = 0; i < nmerges-1; i++)
+    {
+      FILE *tfp;
+      pid_t pid;
+      char *temp = create_temp (&tfp, &pid);
+      struct sortfile tfile;
+      tfile.name = temp;
+      tfile.pid = pid;
+      newtemps[i] = tfile;
+      newtemps_ptrs[i] = tfp;
+    }
+  //The last temp file will be the desitred output file:
+  struct sortfile tfile_output;
+  tfile_output.name = output_file;
+  newtemps[i] = tfile_output;
+  newtemps_ptrs[i] = ofp;
+  //Main merge thread spawning loop. Each iteration is one level of 2-way merges.
+  while (nthreads >= 1)
+    {
+      pthread_t *pthreads = malloc(nthreads * sizeof(pthread_t));
+
+      //Spawn each thread for this merge level
+      for(i = 0; i < nthreads; ++i)
+        {
+          size_t numFilesToMerge = 2 + ((i == 0) ? oddthread : 0);
+          size_t mergefiles_set = 0;
+          struct sortfile *mergefiles = malloc(numFilesToMerge*sizeof(struct sortfile));
+
+          while(nTemps_used < ntemps && mergefiles_set < numFilesToMerge)
+            {
+              mergefiles[mergefiles_set] = files[nTemps_used];
+              mergefiles_set++;
+              nTemps_used++;
+            }
+          while(nFiles_used < nfiles && mergefiles_set < numFilesToMerge)
+            {
+              mergefiles[mergefiles_set] = files[ntemps+nFiles_used];
+              mergefiles_set++;
+              nFiles_used++;
+            }
+          while(nNewTemps_used < nNewTemps && mergefiles_set < numFilesToMerge)
+            {
+              mergefiles[mergefiles_set] = newtemps[nNewTemps_used];
+              mergefiles_set++;
+              nNewTemps_used++;
+            }
+fprintf(stderr, "POOP: %d \n", nthreads);
+
+          //merge files have been set
+          open_input_files(mergefiles, mergefiles_set, &fps); 
+          struct merge_args newArg = {mergefiles, (nTemps_used + nNewTemps_used), nFiles_used, newtemps_ptrs[mi], newtemps[mi].name, fps};
+          args[i] = newArg;
+          pthread_t thread;
+          pthreads[i] = thread;
+          pthread_create(&pthreads[i], NULL, mergefps_thread, (void*)&args[i]);
+          mi++;
+
+          free(mergefiles);
+        }
+
+      //Wait for all the threads to finish merging before starting the next level of merge
+
+      for (i = 0; i < nthreads; i++)
+        {
+          pthread_join(pthreads[i], NULL);
+        }
+fprintf(stderr, "POOPEY\n");
+
+      free(pthreads);
+
+      oddthread = nthreads%2;
+      nthreads /= 2;
+    }
+  free(newtemps);
+  free(newtemps_ptrs);
+  free(args);
+}
+
 
 /* Merge lines from FILES onto OFP.  NTEMPS is the number of temporary
    files (all of which are at the start of the FILES array), and
