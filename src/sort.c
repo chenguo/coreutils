@@ -3130,7 +3130,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
 
           // If no other files have been checked, create all the
           // necessary stuff for the new device
-          if (device_num >= num_devices)
+          if (num_devices <= device_num)
             {
               device_num = num_devices;
               char **files_for_device = xnmalloc (nfiles, sizeof *files_for_device);
