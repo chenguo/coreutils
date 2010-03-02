@@ -2849,14 +2849,11 @@ merge_work (struct merge_node *const restrict node, FILE *tfp,
 
   if (node->level > 1)
     {
-      while (node->lo != node->end_lo && node->hi != node->end_hi
-             && to_merge--)
-        {
-          if (compare (node->lo - 1, node->hi - 1) <= 0)
-            *--node->dest = *--node->lo;
-          else
-            *--node->dest = *--node->hi;
-        }
+      while (node->lo != node->end_lo && node->hi != node->end_hi && to_merge--)
+        if (compare (node->lo - 1, node->hi - 1) <= 0)
+          *--node->dest = *--node->lo;
+        else
+          *--node->dest = *--node->hi;
 
       merged_lo = lo_orig - node->lo;
       merged_hi = hi_orig - node->hi;
@@ -2871,12 +2868,10 @@ merge_work (struct merge_node *const restrict node, FILE *tfp,
   else
     {
       while (node->lo != node->end_lo && node->hi != node->end_hi && to_merge--)
-        {
-          if (compare (node->lo - 1, node->hi - 1) <= 0)
-            write_unique (--node->lo, tfp, temp_output);
-          else
-            write_unique (--node->hi, tfp, temp_output);
-        }
+        if (compare (node->lo - 1, node->hi - 1) <= 0)
+          write_unique (--node->lo, tfp, temp_output);
+        else
+          write_unique (--node->hi, tfp, temp_output);
 
       merged_lo = lo_orig - node->lo;
       merged_hi = hi_orig - node->hi;
@@ -2907,13 +2902,9 @@ check_insert (struct merge_node *node,
   size_t nlo = node->nlo;
   size_t nhi = node->nhi;
 
-/*  if (!node->queued && 
-      ((lo_avail && hi_avail)
-        || (!nlo && hi_avail)
-        || (!nhi && lo_avail)))*/
-  if (!node->queued && 
-      ((lo_avail && (hi_avail || !nhi)
-       || (hi_avail && !nlo))))
+  if (!node->queued &&
+      ((lo_avail && (hi_avail || !nhi))
+       || (hi_avail && !nlo)))
     {
       queue_insert (queue, node);
     }
