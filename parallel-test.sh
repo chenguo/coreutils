@@ -40,10 +40,10 @@ do
 	echo "Release Version: $release_time seconds"
 	echo ""
 	
-	improvement_over_old=`echo "scale=2; ($old_time / $current_time - 1) * 100.0" | bc`
+	improvement_over_old=`echo "scale=2; (1 - $current_time / $old_time) * 100.0" | bc`
 	echo "Improvement over Glen's Version: $improvement_over_old%"
 	
-	improvement_over_release=`echo "scale=2; ($release_time / $current_time - 1) * 100.0" | bc`
+	improvement_over_release=`echo "scale=2; (1 - $current_time / $release_time) * 100.0" | bc`
 	echo "Improvement over Release Version: $improvement_over_release%"
 	
 	if [ "`diff out.dev out.release`" != "" ]; then
