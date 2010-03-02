@@ -3109,10 +3109,10 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
   else
     {
       // Determine which files are on which device
-      char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
+      char ***device_files = xnmalloc (nfiles, sizeof *device_files);
       int num_devices = 0;
-      int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
-      dev_t *device_map = (dev_t *)malloc (nfiles * sizeof (dev_t));
+      int *num_files_on_device = xnmalloc (nfiles, sizeof *num_files_on_device);
+      dev_t *device_map = xnmalloc (nfiles, sizeof *device_map);
 
       int file_num;
       for (file_num = 0; file_num < nfiles; file_num++)
@@ -3133,7 +3133,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           if (device_num >= num_devices)
             {
               device_num = num_devices;
-              char **files_for_device = (char **)malloc (nfiles * sizeof (char * const));
+              char **files_for_device = xnmalloc (nfiles, sizeof *files_for_device);
               device_files[device_num] = files_for_device;
               num_files_on_device[device_num] = 0;
               device_map[device_num] = device_for_file;
@@ -3163,7 +3163,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           // running, CPU likely becomes the bottleneck rather than IO
           unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads);
           unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use + 1;
-          pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
+          pthread_t *threads = xnmalloc (num_threads_to_use, sizeof *threads);
           unsigned long int thread_num = 0;
           int ret_val;
 
