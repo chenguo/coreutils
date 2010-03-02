@@ -242,10 +242,10 @@ struct merge_node
 struct merge_node_queue
 {
   struct heap *priority_queue;  /* Priority queue of merge_units. */
-  pthread_spinlock_t lock;      /* Lock to access the queue. */
-  pthread_mutex_t pop_mutex;    /* Mutex for conditional wait. */
-  pthread_cond_t pop_cond;      /* Conditional variable for when queue is
-                                   populated. */
+  pthread_mutex_t mutex;        /* Mutex for conditional wait. */
+  pthread_cond_t cond;          /* Conditional variable for when queue is
+                                   empty. */
+  size_t size;                  /* Number of nodes currently in the queue. */
 };
 
 /* FIXME: None of these tables work with multibyte character sets.
@@ -2764,7 +2764,8 @@ static inline void
 queue_destroy (struct merge_node_queue *const restrict queue)
 {
   heap_free (queue->priority_queue);
-  pthread_spin_destroy (&queue->lock);
+  pthread_cond_destroy (&queue->cond);
+  pthread_mutex_destroy (&queue->mutex);
 }
 
 /* Initialize merge queue. */
@@ -2772,9 +2773,9 @@ static inline void
 queue_init (struct merge_node_queue *const restrict queue, size_t reserve)
 {
   queue->priority_queue = (struct heap *) heap_alloc (compare_nodes, reserve);
-  pthread_spin_init (&queue->lock, PTHREAD_PROCESS_PRIVATE);
-  pthread_mutex_init (&queue->pop_mutex, NULL);
-  pthread_cond_init (&queue->pop_cond, NULL);
+  pthread_mutex_init (&queue->mutex, NULL);
+  pthread_cond_init (&queue->cond, NULL);
+  queue->size = 0;
 }
 
 /* Insert work unit into priority queue. Assume NODE is already locked, or
@@ -2783,34 +2784,34 @@ static inline void
 queue_insert (struct merge_node_queue *const restrict queue,
               struct merge_node *const restrict node)
 {
-  pthread_spin_lock (&queue->lock);
-  node->queued = true;
+  pthread_mutex_lock (&queue->mutex);
   heap_insert (queue->priority_queue, node);
-  pthread_cond_signal (&queue->pop_cond);
-  pthread_spin_unlock (&queue->lock);
+  queue->size++;
+  pthread_mutex_unlock (&queue->mutex);
+  pthread_cond_signal (&queue->cond);
+  node->queued = true;
 }
 
 /* Pop priority queue. Return a spin locked node.  */
 static inline struct merge_node *
 queue_pop (struct merge_node_queue *const restrict queue)
 {
-  pthread_spin_lock (&queue->lock);
   struct merge_node *ret = NULL;
-  ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
-  pthread_spin_unlock (&queue->lock);
 
   /* Conditional wait if no merge node is immediately available. */
   while (!ret)
     {
       /*  Go into condtional wait. */
-      pthread_mutex_lock (&queue->pop_mutex);
-      pthread_cond_wait (&queue->pop_cond, &queue->pop_mutex);
-      pthread_mutex_unlock (&queue->pop_mutex);
+      pthread_mutex_lock (&queue->mutex);
+      if (queue->size)
+        {
+          queue->size--;
+          ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
+        }
+      else
+        pthread_cond_wait (&queue->cond, &queue->mutex);
 
-      /* Try popping queue again. */
-      pthread_spin_lock (&queue->lock);
-      ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
-      pthread_spin_unlock (&queue->lock);
+      pthread_mutex_unlock (&queue->mutex);
     }
   lock_node (ret);
   ret->queued = false;
@@ -2952,7 +2953,6 @@ work_loop (struct merge_node_queue *const restrict queue,
           queue_insert (queue, node);
           break;
         }
-
       size_t merged_lines = merge_work (node, tfp, temp_output);
 
       check_insert (node, queue);
