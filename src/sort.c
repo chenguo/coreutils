@@ -3112,7 +3112,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
       char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
       int num_devices = 0;
       int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
-      int *device_map = (int *)malloc (nfiles * sizeof (int));
+      dev_t *device_map = (dev_t *)malloc (nfiles * sizeof (dev_t));
 
       int file_num;
       for (file_num = 0; file_num < nfiles; file_num++)
@@ -3120,7 +3120,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           char * const filename = files[file_num];
           struct stat file_info;
           stat (filename, &file_info);
-          int device_for_file = minor (file_info.st_dev);
+          dev_t device_for_file = file_info.st_dev;
 
           // Determine if any other files from this device have been checked
           int device_num;
