@@ -114,7 +114,7 @@ enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 
 // Chen: maaaybe faster, 8 runs of each show avg improvement of .003 ish, but could
 // just be variance. Mike, dobule double double check this?
-#define LINES_TO_MERGE(total, level) (2 * total) / ((2 << level) * (level) * (level)) + 1
+#define MAX_MERGE(total, level) (2 * total) / ((2 << level) * (level) * (level)) + 1
 
 /* Exit statuses.  */
 enum
@@ -2842,7 +2842,7 @@ merge_work (struct merge_node *const restrict node, FILE *tfp,
 {
   struct line *lo_orig = node->lo;
   struct line *hi_orig = node->hi;
-  size_t to_merge = LINES_TO_MERGE (node->total_lines, node->level);
+  size_t to_merge = MAX_MERGE (node->total_lines, node->level);
   size_t merged_lo;
   size_t merged_hi;
 
@@ -2902,7 +2902,7 @@ check_insert (struct merge_node *node,
 {
   size_t lo_avail = node->lo - node->end_lo;
   size_t hi_avail = node->hi - node->end_hi;
-  size_t merge_min = LINES_TO_MERGE (node->total_lines, node->level);
+  size_t merge_min = MAX_MERGE (node->total_lines, node->level);
   size_t nlo = node->nlo;
   size_t nhi = node->nhi;
 

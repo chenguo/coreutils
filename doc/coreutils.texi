@@ -4061,6 +4061,14 @@ have a large sort or merge that is I/O-bound, you can often improve
 performance by using this option to specify directories on different
 disks and controllers.
 
+@item --threads=@var{n}
+@opindex --threads
+@cindex multithreaded sort
+Use at most @var{n} threads to sort input. By default, @var{n} is set
+to the number of logical cores detected on the machine. If @var{n} is
+larger than the number of detected logical cores, @var{n} will be
+reduced to match the nubmer of detected logical cores.
+
 @item -u
 @itemx --unique
 @opindex -u
