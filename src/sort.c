@@ -2906,11 +2906,10 @@ check_insert (struct merge_node *node,
   size_t nlo = node->nlo;
   size_t nhi = node->nhi;
 
-  /* XXX: exmaine */
-  if (!node->queued
-      && ((lo_avail >= merge_min && hi_avail >= merge_min)
-           || ((lo_avail || hi_avail)
-                && (nlo < merge_min || nhi < merge_min))))
+  if (!node->queued && 
+      ((lo_avail && hi_avail)
+        || (!nlo && hi_avail)
+        || (!nhi && lo_avail)))
     {
       queue_insert (queue, node);
     }
@@ -2927,7 +2926,6 @@ update_parent (struct merge_node *const restrict node, size_t merged,
     {
       lock_node (node->parent);
       *node->parent_end -= merged;
-
       check_insert (node->parent, queue);
       unlock_node (node->parent);
     }
