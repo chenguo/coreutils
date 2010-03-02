@@ -2926,211 +2926,12 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
     }
 }
 
-/* Thread arguments for sort_thread. */
-struct sort_thread_args
-{
-  char ***device_files;
-  int num_devices;
-  int *num_files_on_device;
-  unsigned long int num_subthreads_per_thread;
-  pthread_mutex_t mutex;
-};
-
-static void 
-sort (char * const *files, size_t nfiles, char const *output_file, 
-  unsigned long int nthreads, bool should_output);
-
-#define pthread_error(ret_val, msg) {                               \
-    if (ret_val)                                                    \
-      {                                                             \
-        error (SORT_FAILURE, 0, _("%s - %d: %s\n"), msg, ret_val,   \
-               strerror (ret_val));                                 \
-        exit (SORT_FAILURE);                                        \
-      }                                                             \
-}
-
-/* Tries to sort files from one device at a time. Multiple instances can run
-   with the same arguments concurrently. Each instance will sort the files from
-   a different device. */
-
-static void *
-sort_thread (void *data)
-{
-#if HAVE_LIBPTHREAD
-  struct sort_thread_args *args = data;
-  char ***device_files = args->device_files;
-  int num_devices = args->num_devices;
-  int *num_files_on_device = args->num_files_on_device;
-  unsigned long int num_subthreads_per_thread = args->num_subthreads_per_thread;
-  int cur_dev = 0;
-  int ret_val;
-
-  while (cur_dev < num_devices)
-    {
-      char **files = NULL;
-
-      // Find next available list of device files to sort
-      ret_val = pthread_mutex_lock (&args->mutex);
-      pthread_error (ret_val, "error while locking mutex");
-      for (; cur_dev < num_devices; cur_dev++)
-        {
-          if (NULL == (files = device_files[cur_dev]))
-            continue;
-          // Tell other threads that this device list is no longer available
-          device_files[cur_dev] = NULL;
-          break;
-        }
-      ret_val = pthread_mutex_unlock (&args->mutex);
-      pthread_error (ret_val, "error while unlocking mutex");
-
-      if (NULL == files)
-        return NULL;
-
-      sort (files, num_files_on_device[cur_dev], NULL, num_subthreads_per_thread, false);
-
-      // Free the device list here, no one else has a reference to it anymore
-      free (files);
-    }
-#endif
-  return NULL;
-}
-
-/* Sort NFILES FILES onto OUTPUT_FILE. */
-static void
-sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
-                unsigned long int nthreads)
-{
-#if HAVE_LIBPTHREAD
-  // If we are allowed to use more threads, we should!
-  if (nfiles <= 1)
-    sort (files, nfiles, output_file, nthreads, true);
-  else
-    {
-      // Determine which files are on which device
-      char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
-      int num_devices = 0;
-      int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
-      int *device_map = (int *)malloc (nfiles * sizeof (int));
-
-      int file_num;
-      for (file_num = 0; file_num < nfiles; file_num++)
-        {
-          char * const filename = files[file_num];
-          struct stat file_info;
-          stat (filename, &file_info);
-          int device_for_file = minor (file_info.st_dev);
-
-          // Determine if any other files from this device have been checked
-          int device_num;
-          for (device_num = 0; device_num < num_devices; device_num++)
-            if (device_map[device_num] == device_for_file)
-              break;
-
-          // If no other files have been checked, create all the
-          // necessary stuff for the new device
-          if (device_num >= num_devices)
-            {
-              device_num = num_devices;
-              char **files_for_device = (char **)malloc (nfiles * sizeof (char * const));
-              device_files[device_num] = files_for_device;
-              num_files_on_device[device_num] = 0;
-              device_map[device_num] = device_for_file;
-              num_devices++;
-            }
-
-            // Add the filename to the device's file list
-            int num_files = num_files_on_device[device_num];
-            device_files[device_num][num_files] = filename;
-            num_files_on_device[device_num] = num_files + 1;
-        }
-      free (device_map);
-
-      if (num_devices <= 1)
-        {
-          // Free all the memory allocated for device information
-          free (device_files[0]);
-          free (device_files);
-          free (num_files_on_device);
-
-          sort (files, nfiles, output_file, nthreads, true);
-        }
-      else
-        {
-          // Cap to 16x nthreads
-          // This is just a general heuristic. Once you have more threads
-          // running, CPU likely becomes the bottleneck rather than IO
-          unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads);
-          unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use + 1;
-          pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
-          unsigned long int thread_num = 0;
-          int ret_val;
-
-          struct sort_thread_args args = {
-            .device_files = device_files,
-            .num_devices = num_devices,
-            .num_files_on_device = num_files_on_device,
-            .num_subthreads_per_thread = num_subthreads_per_thread};
-
-          ret_val = pthread_mutex_init (&args.mutex, NULL);
-          pthread_error (ret_val, "error while init'n mutex");
-
-          // Spawn threads to sort the device lists. The threads will keep
-          // running until all of the device lists have been sorted.
-          for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
-            {
-              ret_val = pthread_create (&threads[thread_num], NULL, sort_thread, &args);
-              pthread_error (ret_val, "error while creating a thread");
-            }
-
-          // Wait for each thread to finish before merging
-          // We could potentially optimize this by beginning some
-          // merges while other threads are still sorting
-          // That's something to look into once we have something
-          // functional
-          for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
-            {
-              ret_val = pthread_join (threads[thread_num], NULL);
-              pthread_error (ret_val, "error while joining a thread");
-            }
-
-          free (threads);
-
-          // Free all the memory allocated for device information
-          free (device_files);
-          free (num_files_on_device);
-
-          ret_val = pthread_mutex_destroy (&args.mutex);
-          pthread_error (ret_val, "error while destroying mutex");
-
-          // Merge all the temp files created by the threads
-          {
-            size_t i;
-            size_t ntemps = total_num_temps;
-
-            struct tempnode *node = temphead;
-            struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
-            for (i = 0; node; i++)
-              {
-                tempfiles[i].name = node->name;
-                tempfiles[i].pid = node->pid;
-                node = node->next;
-              }
-            merge (tempfiles, ntemps, ntemps, output_file);
-            free (tempfiles);
-          }
-        }
-    }
-#else
-  sort (files, nfiles, output_file, nthreads, true);
-#endif
-}
-
 /* Sort NFILES FILES into OUTPUT_FILE if should_output is true and into
-   temporary files otherwise. */
+   temporary files if false. */
 
 static void
-sort (char * const *files, size_t nfiles, char const *output_file,
-      unsigned long int nthreads, const bool should_output)
+do_sort (char * const *files, size_t nfiles, char const *output_file,
+         unsigned long int nthreads, const bool should_output)
 {
   struct buffer buf;
   size_t ntemps = 0;
@@ -3229,6 +3030,208 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       merge (tempfiles, ntemps, ntemps, output_file);
       free (tempfiles);
     }
+}
+
+/* Thread arguments for sort_thread. */
+struct sort_thread_args
+{
+  char ***device_files;
+  int num_devices;
+  int *num_files_on_device;
+  unsigned long int num_subthreads_per_thread;
+  pthread_mutex_t mutex;
+};
+
+#define pthread_error(ret_val, msg) {                               \
+    if (ret_val)                                                    \
+      {                                                             \
+        error (SORT_FAILURE, 0, _("%s - %d: %s\n"), msg, ret_val,   \
+               strerror (ret_val));                                 \
+        exit (SORT_FAILURE);                                        \
+      }                                                             \
+}
+
+/* Tries to sort files from one device at a time. Multiple instances can run
+   with the same arguments concurrently. Each instance will sort the files from
+   a different device. */
+
+static void *
+sort_thread (void *data)
+{
+#if HAVE_LIBPTHREAD
+  struct sort_thread_args *args = data;
+  char ***device_files = args->device_files;
+  int num_devices = args->num_devices;
+  int *num_files_on_device = args->num_files_on_device;
+  unsigned long int num_subthreads_per_thread = args->num_subthreads_per_thread;
+  int cur_dev = 0;
+  int ret_val;
+
+  while (cur_dev < num_devices)
+    {
+      char **files = NULL;
+
+      // Find next available list of device files to sort
+      ret_val = pthread_mutex_lock (&args->mutex);
+      pthread_error (ret_val, "error while locking mutex");
+      for (; cur_dev < num_devices; cur_dev++)
+        {
+          if (NULL == (files = device_files[cur_dev]))
+            continue;
+          // Tell other threads that this device list is no longer available
+          device_files[cur_dev] = NULL;
+          break;
+        }
+      ret_val = pthread_mutex_unlock (&args->mutex);
+      pthread_error (ret_val, "error while unlocking mutex");
+
+      if (NULL == files)
+        return NULL;
+
+      do_sort (files, num_files_on_device[cur_dev], NULL, num_subthreads_per_thread, false);
+
+      // Free the device list here, no one else has a reference to it anymore
+      free (files);
+    }
+#endif
+  return NULL;
+}
+
+/* Sort NFILES FILES onto OUTPUT_FILE. */
+static void
+sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
+                unsigned long int nthreads)
+{
+#if HAVE_LIBPTHREAD
+  // If we are allowed to use more threads, we should!
+  if (nfiles <= 1)
+    do_sort (files, nfiles, output_file, nthreads, true);
+  else
+    {
+      // Determine which files are on which device
+      char ***device_files = (char ***)malloc (nfiles * sizeof (char **));
+      int num_devices = 0;
+      int *num_files_on_device = (int *)malloc (nfiles * sizeof (int));
+      int *device_map = (int *)malloc (nfiles * sizeof (int));
+
+      int file_num;
+      for (file_num = 0; file_num < nfiles; file_num++)
+        {
+          char * const filename = files[file_num];
+          struct stat file_info;
+          stat (filename, &file_info);
+          int device_for_file = minor (file_info.st_dev);
+
+          // Determine if any other files from this device have been checked
+          int device_num;
+          for (device_num = 0; device_num < num_devices; device_num++)
+            if (device_map[device_num] == device_for_file)
+              break;
+
+          // If no other files have been checked, create all the
+          // necessary stuff for the new device
+          if (device_num >= num_devices)
+            {
+              device_num = num_devices;
+              char **files_for_device = (char **)malloc (nfiles * sizeof (char * const));
+              device_files[device_num] = files_for_device;
+              num_files_on_device[device_num] = 0;
+              device_map[device_num] = device_for_file;
+              num_devices++;
+            }
+
+            // Add the filename to the device's file list
+            int num_files = num_files_on_device[device_num];
+            device_files[device_num][num_files] = filename;
+            num_files_on_device[device_num] = num_files + 1;
+        }
+      free (device_map);
+
+      if (num_devices <= 1)
+        {
+          // Free all the memory allocated for device information
+          free (device_files[0]);
+          free (device_files);
+          free (num_files_on_device);
+
+          do_sort (files, nfiles, output_file, nthreads, true);
+        }
+      else
+        {
+          // Cap to 16x nthreads
+          // This is just a general heuristic. Once you have more threads
+          // running, CPU likely becomes the bottleneck rather than IO
+          unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads);
+          unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use + 1;
+          pthread_t *threads = (pthread_t *)malloc (num_threads_to_use * sizeof (pthread_t));
+          unsigned long int thread_num = 0;
+          int ret_val;
+
+          struct sort_thread_args args = {
+            .device_files = device_files,
+            .num_devices = num_devices,
+            .num_files_on_device = num_files_on_device,
+            .num_subthreads_per_thread = num_subthreads_per_thread};
+
+          ret_val = pthread_mutex_init (&args.mutex, NULL);
+          pthread_error (ret_val, "error while init'n mutex");
+
+          // Spawn threads to sort the device lists. The threads will keep
+          // running until all of the device lists have been sorted.
+          for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
+            {
+              ret_val = pthread_create (&threads[thread_num], NULL, sort_thread, &args);
+              pthread_error (ret_val, "error while creating a thread");
+            }
+
+          // Wait for each thread to finish before merging
+          // We could potentially optimize this by beginning some
+          // merges while other threads are still sorting
+          // That's something to look into once we have something
+          // functional
+          for (thread_num = 0; thread_num < num_threads_to_use; thread_num++)
+            {
+              ret_val = pthread_join (threads[thread_num], NULL);
+              pthread_error (ret_val, "error while joining a thread");
+            }
+
+          free (threads);
+
+          // Free all the memory allocated for device information
+          free (device_files);
+          free (num_files_on_device);
+
+          ret_val = pthread_mutex_destroy (&args.mutex);
+          pthread_error (ret_val, "error while destroying mutex");
+
+          // Merge all the temp files created by the threads
+          {
+            size_t i;
+            size_t ntemps = total_num_temps;
+
+            struct tempnode *node = temphead;
+            struct sortfile *tempfiles = xnmalloc (ntemps, sizeof *tempfiles);
+            for (i = 0; node; i++)
+              {
+                tempfiles[i].name = node->name;
+                tempfiles[i].pid = node->pid;
+                node = node->next;
+              }
+            merge (tempfiles, ntemps, ntemps, output_file);
+            free (tempfiles);
+          }
+        }
+    }
+#else
+  do_sort (files, nfiles, output_file, nthreads, true);
+#endif
+}
+
+static void
+sort (char * const *files, size_t nfiles, char const *output_file,
+      unsigned long int nthreads)
+{
+    sort_multidisk (files, nfiles, output_file, nthreads);
 }
 
 /* Insert a malloc'd copy of key KEY_ARG at the end of the key list.  */
@@ -3983,7 +3986,7 @@ main (int argc, char **argv)
             continue;
         }
 
-      sort_multidisk (files, nfiles, outfile, nthreads);
+      sort (files, nfiles, outfile, nthreads);
     }
 
   if (have_read_stdin && fclose (stdin) == EOF)
