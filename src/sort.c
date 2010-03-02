@@ -2906,10 +2906,13 @@ check_insert (struct merge_node *node,
   size_t nlo = node->nlo;
   size_t nhi = node->nhi;
 
-  if (!node->queued && 
+/*  if (!node->queued && 
       ((lo_avail && hi_avail)
         || (!nlo && hi_avail)
-        || (!nhi && lo_avail)))
+        || (!nhi && lo_avail)))*/
+  if (!node->queued && 
+      ((lo_avail && (hi_avail || !nhi)
+       || (hi_avail && !nlo))))
     {
       queue_insert (queue, node);
     }
