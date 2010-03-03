@@ -101,20 +101,10 @@ enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 # define DEFAULT_TMPDIR "/tmp"
 #endif
 
-/* Each call to merge_work() should merge this many elements. This macro
- * should always expand to a positive (read: non-zero) integer
- */
-//#define UNIT_OF_MERGE(total, level) (total / (50 * level * (2 << level))) + 1
+/* Maximum number of lines that can be merged at once. This macro
+   should always expand to a positive (read: non-zero) integer */
+#define MAX_MERGE(total, level) ((total) / ((2 << level) * (2 << level)) + 1)
 
-// best so far
-//#define UNIT_OF_MERGE(total, level) ((total) / (20 * (level) * (level))) + 1
-
-// slightly better than previous ~.81 compared to ~.84
-//#define UNIT_OF_MERGE(total, level) (2*(total) / ((level) * (level) * (level))) + 1
-
-// Chen: maaaybe faster, 8 runs of each show avg improvement of .003 ish, but could
-// just be variance. Mike, dobule double double check this?
-#define MAX_MERGE(total, level) (2 * total) / ((2 << level) * (level) * (level)) + 1
 
 /* Exit statuses.  */
 enum
@@ -2692,7 +2682,6 @@ sequential_sort (struct line *restrict lines, size_t nlines,
       /* Declare `swap' as int, not bool, to work around a bug
 	 <http://lists.gnu.org/archive/html/bug-coreutils/2005-10/msg00086.html>
 	 in the IBM xlc 6.0.0.0 compiler in 64-bit mode.  */
-      /* int swap = (0 < compare (&lines[-1], &lines[-2])); */
       int swap = (0 < compare (&lines[-1], &lines[-2]));
       if (to_temp)
         {
@@ -2735,7 +2724,9 @@ sequential_sort (struct line *restrict lines, size_t nlines,
     }
 }
 
-/* Priority queue compare function. */
+/* Compare two NODEs for priority. The higher (numerically lower)
+   level wins. If tie, the NODE with the most lines remaining wins. */
+
 static int
 compare_nodes (const void *node1, const void *node2)
 {
@@ -2746,11 +2737,15 @@ compare_nodes (const void *node1, const void *node2)
   return lhs->level < rhs->level;
 }
 
+/* Lock a merge tree NODE. */
+
 static inline void
 lock_node (struct merge_node *const restrict node)
 {
   pthread_spin_lock (node->lock);
 }
+
+/* Unlock a merge tree NODE. */
 
 static inline void
 unlock_node (struct merge_node *const restrict node)
@@ -2758,7 +2753,8 @@ unlock_node (struct merge_node *const restrict node)
   pthread_spin_unlock (node->lock);
 }
 
-/* Destroy merge queue. */
+/* Destroy merge QUEUE. */
+
 static inline void
 queue_destroy (struct merge_node_queue *const restrict queue)
 {
@@ -2767,7 +2763,8 @@ queue_destroy (struct merge_node_queue *const restrict queue)
   pthread_mutex_destroy (&queue->mutex);
 }
 
-/* Initialize merge queue. */
+/* Initialize merge QUEUE, allocating space for a maximum of RESERVE nodes. */
+
 static inline void
 queue_init (struct merge_node_queue *const restrict queue, size_t reserve)
 {
@@ -2776,8 +2773,9 @@ queue_init (struct merge_node_queue *const restrict queue, size_t reserve)
   pthread_cond_init (&queue->cond, NULL);
 }
 
-/* Insert work unit into priority queue. Assume NODE is already locked, or
-   not necessary to lock. */
+/* Insert work unit into priority QUEUE. Assume NODE is either already
+   locked or not necessary to lock. */
+
 static inline void
 queue_insert (struct merge_node_queue *const restrict queue,
               struct merge_node *const restrict node)
@@ -2789,20 +2787,21 @@ queue_insert (struct merge_node_queue *const restrict queue,
   pthread_cond_signal (&queue->cond);
 }
 
-/* Pop priority queue. Return a spin locked node.  */
+/* Pop priority QUEUE. Return a spinlocked NODE.  */
+
 static inline struct merge_node *
 queue_pop (struct merge_node_queue *const restrict queue)
 {
   struct merge_node *ret = NULL;
 
-  /* Conditional wait if no merge node is immediately available. */
   while (!ret)
     {
-      /*  Go into condtional wait. */
       pthread_mutex_lock (&queue->mutex);
       if (queue->priority_queue->count)
         ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
       else
+        /*  Go into condtional wait if no NODE is immediately
+            available. */
         pthread_cond_wait (&queue->cond, &queue->mutex);
 
       pthread_mutex_unlock (&queue->mutex);
@@ -2812,8 +2811,9 @@ queue_pop (struct merge_node_queue *const restrict queue)
   return ret;
 }
 
-/* If unique is set, checks to make sure line isn't a duplicate before
-   outputting. If unique is not set, output the passed in line. */
+/* If UNQIUE is set, checks to make sure line isn't a duplicate before
+   outputting. If UNIQUE is not set, output the passed in line. */
+
 static inline void
 write_unique (struct line *const restrict write, FILE *tfp,
               const char *temp_output)
@@ -2829,10 +2829,11 @@ write_unique (struct line *const restrict write, FILE *tfp,
     }
 }
 
-/* Merge into DEST sorted input from LO and HI, including last
-   elements found at END_LO and END_HI respectively. */
+/* Merge the lines currently available to a NODE in the binary
+   merge tree, up to a maximum specified by MAX_MERGE. */
+
 static inline size_t
-merge_work (struct merge_node *const restrict node, FILE *tfp,
+merge_node (struct merge_node *const restrict node, FILE *tfp,
             const char *temp_output)
 {
   struct line *lo_orig = node->lo;
@@ -2885,26 +2886,25 @@ merge_work (struct merge_node *const restrict node, FILE *tfp,
   return merged_lo + merged_hi;
 }
 
-/* Insert node if it passes insertion checks. */
+/* Insert NODE into QUEUE if it passes insertion checks. */
+
 static inline bool
 check_insert (struct merge_node *node,
               struct merge_node_queue *const restrict queue)
 {
   size_t lo_avail = node->lo - node->end_lo;
   size_t hi_avail = node->hi - node->end_hi;
-  size_t merge_min = MAX_MERGE (node->total_lines, node->level);
-  size_t nlo = node->nlo;
-  size_t nhi = node->nhi;
 
   if ((!node->queued)
-      && ((lo_avail && (hi_avail || !nhi))
-          || (hi_avail && !nlo)))
+      && ((lo_avail && (hi_avail || !(node->nhi)))
+          || (hi_avail && !(node->nlo))))
     {
       queue_insert (queue, node);
-    } 
+    }
 }
 
-/* Update parent merge node. */
+/* Update parent merge tree NODE. */
+
 static inline void
 update_parent (struct merge_node *const restrict node, size_t merged,
                struct merge_node_queue *const restrict queue)
@@ -2920,27 +2920,31 @@ update_parent (struct merge_node *const restrict node, size_t merged,
     queue_insert (queue, node->parent);
 }
 
-/* Repeatedly completes work in work_units in queue. */
+/* Repeatedly querry QUEUE for merge tree nodes that have work to
+   be done, and carry out the work of the node returned. */
+
 static void
-work_loop (struct merge_node_queue *const restrict queue,
+merge_loop (struct merge_node_queue *const restrict queue,
            FILE *tfp, const char *temp_output)
 {
   while (1)
     {
-      /* Get locked work_unit. */
+      /* Get locked NODE. */
       struct merge_node *node = queue_pop (queue);
 
-      /* Dummy work unit. Level is never changed, so it's safe to access
-         outside of lock. */
+      /* Termination NODE. */
       if (node->level == 0)
         {
           unlock_node (node);
           queue_insert (queue, node);
           break;
         }
-      size_t merged_lines = merge_work (node, tfp, temp_output);
+      size_t merged_lines = merge_node (node, tfp, temp_output);
 
+      /* Check if NODE needs to be re-inserted. */
       check_insert (node, queue);
+
+      /* Update the parent NODE. */
       update_parent (node, merged_lines, queue);
       unlock_node (node);
     }
@@ -2954,6 +2958,7 @@ static void sortlines (struct line *restrict, struct line *restrict,
                        FILE *, const char *);
  
 /* Thread arguments for sortlines_thread. */
+
 struct thread_args
 {
   struct line *lines;
@@ -2968,6 +2973,7 @@ struct thread_args
 };
 
 /* Like sortlines, except with a signature acceptable to pthread_create.  */
+
 static void *
 sortlines_thread (void *data)
 {
@@ -2992,17 +2998,17 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
       dest[-1] = lines[-1 - swap];
       dest[-2] = lines[-2 + swap];
 
-      /* Create struct with mininal members needed by update_parent. */
+      /* Create NODE with mininal members needed by update_parent. */
       struct merge_node node =
         {lines, lines - 1,lines - 1, lines - 2, dest, parent_end, 0, 0, 0,
          parent->level + 1, parent, false, NULL};
 
       update_parent (&node, nlines, merge_queue);
-      work_loop (merge_queue, tfp, temp_output);
+      merge_loop (merge_queue, tfp, temp_output);
     }
   else
     {
-      /* Create merge node. */
+      /* Create merge tree NODE. */
       size_t nlo = nlines / 2;
       size_t nhi = nlines - nlo;
       struct line *lo = dest - parent->total_lines;
@@ -3033,19 +3039,20 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
         }
       else
         {
-          /* Nthreads = 1, this is a leaf node. Call sequential_sort. */
+          /* Nthreads = 1, this is a leaf NODE, or pthread_create failed.
+             Sort with 1 thread. */
           sequential_sort (lines - nlo, nhi, hi, true);
           if (1 < nlo)
             sequential_sort (lines, nlo, lo, true);
           else
             lo[-1] = lines[-1];
 
-          /* Update merge node. No need to lock yet. */
+          /* Update merge NODE. No need to lock yet. */
           node.end_lo = lo - nlo;
           node.end_hi = hi - nhi;
 
           queue_insert (merge_queue, &node);
-          work_loop (merge_queue, tfp, temp_output);
+          merge_loop (merge_queue, tfp, temp_output);
         }
     }
 }
@@ -4106,17 +4113,11 @@ main (int argc, char **argv)
     }
   else
     {
-      if (!nthreads)
-        {
-          /* The default NTHREADS is 2 ** floor (log2 (number of processors)).
-             If comparisons do not vary in cost and threads are
-             scheduled evenly, with the current algorithm there is no
-             performance advantage to using a number of threads that
-             is not a power of 2.  */
-          unsigned long int np2 = num_processors (NPROC_ALL) / 2;
-          for (nthreads = 1; nthreads <= np2; nthreads *= 2)
-            continue;
-        }
+      /* If NTHREADS > number of cores on the machine, spinlocking
+         could wasteful. */
+      unsigned long int np2 = num_processors (NPROC_ALL);
+      if (!nthreads || nthreads > np2)
+        nthreads = np2;
 
       sort (files, nfiles, outfile, nthreads);
     }
