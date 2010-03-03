@@ -22,7 +22,7 @@ Completed:
      so glen's sort so is not a concern)
    (Chen: no need, tests show threads=1 for our code is 5.15s, versus 5.6-ish
           for old implementation.)
-   
+
 7) Experiment with outputting at the top level of merge. Will be tricky,
      since we need to track the last line output for sort --unique
      purposes, but we'll be jumping in and out of the call.

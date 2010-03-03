@@ -2627,7 +2627,7 @@ mergefiles (struct sortfile *files, size_t ntemps, size_t nfiles,
    T - (NLINES / 2) (with NLINES - NLINES / 2 members).
    T and LO point just past their respective arrays, and the arrays
    are in reverse order.  NLINES must be at least 2.  */
- 
+
 static inline void
 mergelines (struct line *restrict t, size_t nlines,
             struct line const *restrict lo)
@@ -2956,7 +2956,7 @@ static void sortlines (struct line *restrict, struct line *restrict,
                        struct line **restrict,
                        struct merge_node_queue *const restrict,
                        FILE *, const char *);
- 
+
 /* Thread arguments for sortlines_thread. */
 
 struct thread_args
@@ -2983,6 +2983,27 @@ sortlines_thread (void *data)
              args->tfp, args->output_temp);
   return NULL;
 }
+
+/* There are three phases to the algorithm: node creation, sequential sort,
+   and binary merge.
+
+   During node creation, sortlines recursively visits each node in the
+   binary merge tree and creates a NODE structure corresponding to all the
+   future line merging NODE is responsible for. For each call to
+   sortlines, half the available threads are assigned to each recursive
+   call, until a leaf node having only 1 available thread is reached.
+
+   Each leat node then performs two sequential sorts, one on each half of
+   the lines it is responsible for. It records in its NODE structure that 
+   there are two sorted sublists availale to merge from, and inserts its
+   NODE into the priority queue.
+
+   The binary merge phase then begins. Each thread drops into a loop
+   where the thread retrieves a NODE from the priority queue, merges lines
+   available to that NODE, and potentially insert NODE or its parent back
+   into the queue if there are sufficient available lines for them to
+   merge. This continues until all lines at all nodes of the merge tree
+   have been merged. */
 
 static void
 sortlines (struct line *restrict lines, struct line *restrict dest,
@@ -3033,7 +3054,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
           /* Guarantee that nlo and nhi are each at least 2.  */
           verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-          sortlines (lines, lo, my_subthreads, nlo, &node, &node.end_lo, 
+          sortlines (lines, lo, my_subthreads, nlo, &node, &node.end_lo,
                      merge_queue, tfp, temp_output);
           pthread_join (thread, NULL);
         }

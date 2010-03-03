@@ -31,7 +31,6 @@ very_expensive_
 LC_ALL=C
 export LC_ALL
 
-fail=0
 
 perl -e '
 my $num_lines = 500000;
@@ -41,7 +40,7 @@ for (my $i=0; $i < $num_lines; $i++)
 {
     for (my $j=0; $j < $length; $j++)
     {
-	printf "%c", 32 + rand(94);
+      printf "%c", 32 + rand(94);
     }
     print "\n";
 }' > in || framework_failure
