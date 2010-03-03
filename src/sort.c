@@ -23,7 +23,6 @@
 #include <config.h>
 
 #include <getopt.h>
-#include <pthread.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
@@ -48,6 +47,10 @@
 #include "xmemxfrm.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
+
+#if HAVE_LIBPTHREAD
+# include <pthread.h>
+#endif
 
 #if HAVE_SYS_RESOURCE_H
 # include <sys/resource.h>
