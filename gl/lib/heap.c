@@ -18,6 +18,8 @@
 /* Full implementation: GDSL (http://gna.org/projects/gdsl/) by Nicolas
    Darnis <ndarnis@free.fr>. Adapted by Gene Auyeung. */
 
+#include <config.h>
+
 #include "stdlib--.h"
 #include "heap.h"
 #include "xalloc.h"

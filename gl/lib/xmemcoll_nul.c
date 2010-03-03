@@ -44,9 +44,9 @@ xmemcoll_nul (char *s1, size_t s1len, char *s2, size_t s2len)
   if (collation_errno)
     {
       error (0, collation_errno, _("string comparison failed"));
-      error (0, 0, _("Set LC_ALL='C' to work around the problem."));
+      error (0, 0, _("set LC_ALL='C' to work around the problem"));
       error (exit_failure, 0,
-             _("The strings compared were %s and %s."),
+             _("the strings compared were %s and %s"),
              quotearg_n_style_mem (0, locale_quoting_style, s1, s1len),
              quotearg_n_style_mem (1, locale_quoting_style, s2, s2len));
     }
