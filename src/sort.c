@@ -90,13 +90,6 @@ struct rlimit { size_t rlim_cur; };
 # define OPEN_MAX 20
 #endif
 
-/* Heuristic value for the number of lines for which it is worth
-   creating a subthread, during an internal merge sort, on a machine
-   that has processors galore.  Currently this number is just a guess.
-   This value must be at least 4.  We don't know of any machine where
-   this number has any practical effect.  */
-enum { SUBTHREAD_LINES_HEURISTIC = 4 };
-
 #define UCHAR_LIM (UCHAR_MAX + 1)
 
 #ifndef DEFAULT_TMPDIR
@@ -305,6 +298,8 @@ static char const *compress_program;
 /* Maximum number of files to merge in one go.  If more than this
    number are present, temp files will be used. */
 static unsigned int nmerge = NMERGE_DEFAULT;
+
+static void sortlines_temp (struct line *, size_t, struct line *);
 
 /* Report MESSAGE for FILE, then clean up and exit.
    If FILE is null, it represents standard output.  */
@@ -1279,8 +1274,8 @@ specify_sort_size (int oi, char c, char const *s)
   xstrtol_fatal (e, oi, c, long_options, s);
 }
 
-/* TODO cs130: change to size_t? unsigned long int seems extreme. */
-/* Specify the number of threads to spawn during internal sort.  */
+/* TODO cs130: change to size_t? unsigned long int seems extreme.
+   Specify the number of threads to spawn during internal sort. */
 static unsigned long int
 specify_nthreads (int oi, char c, char const *s)
 {
@@ -1294,7 +1289,6 @@ specify_nthreads (int oi, char c, char const *s)
     error (SORT_FAILURE, 0, _("number of threads must be nonzero"));
   return nthreads;
 }
-
 
 /* Return the default sort size.  */
 static size_t
@@ -2582,28 +2576,25 @@ mergefiles (struct sortfile *files, size_t ntemps, size_t nfiles,
   return nopened;
 }
 
-/* Merge into T (of size NLINES) the two sorted arrays of lines
-   LO (with NLINES / 2 members), and
-   T - (NLINES / 2) (with NLINES - NLINES / 2 members).
-   T and LO point just past their respective arrays, and the arrays
-   are in reverse order.  NLINES must be at least 2.  */
- 
-static inline void
-mergelines (struct line *restrict t, size_t nlines,
-            struct line const *restrict lo)
-{
-  size_t nlo = nlines / 2;
-  size_t nhi = nlines - nlo;
-  struct line const *hi = t - nlo;
+/* Merge into T the two sorted arrays of lines LO (with NLO members)
+   and HI (with NHI members).  T, LO, and HI point just past their
+   respective arrays, and the arrays are in reverse order.  NLO and
+   NHI must be positive, and HI - NHI must equal T - (NLO + NHI).  */
 
+static inline void
+mergelines (struct line *t,
+            struct line const *lo, size_t nlo,
+            struct line const *hi, size_t nhi)
+{
   for (;;)
     if (compare (lo - 1, hi - 1) <= 0)
       {
         *--t = *--lo;
         if (! --nlo)
           {
-            /* HI must equal T now, and there is no need to copy from
-               HI to T. */
+            /* HI - NHI equalled T - (NLO + NHI) when this function
+               began.  Therefore HI must equal T now, and there is no
+               need to copy from HI to T.  */
             return;
           }
       }
@@ -2621,67 +2612,28 @@ mergelines (struct line *restrict t, size_t nlines,
       }
 }
 
-static void sortlines (struct line *restrict, size_t, struct line *restrict,
-                       unsigned long int, bool);
- 
-/* Thread arguments for sortlines_thread. */
-struct thread_args
-{
-  struct line *lines;
-  size_t nlines;
-  struct line *temp;
-  unsigned long int nthreads;
-  bool to_temp;
-};
-
-/* Like sortlines, except with a signature acceptable to pthread_create.  */
-static void *
-sortlines_thread (void *data)
-{
-  struct thread_args const *args = data;
-  sortlines (args->lines, args->nlines, args->temp, args->nthreads,
-             args->to_temp);
-  return NULL;
-}
-
-/* Sort the array LINES with NLINES members, using TEMP for temporary space,
-   spawning NTHREADS threads.  NLINES must be at least 2.
+/* Sort the array LINES with NLINES members, using TEMP for temporary space.
+   NLINES must be at least 2.
    The input and output arrays are in reverse order, and LINES and
    TEMP point just past the end of their respective arrays.
 
-   If TO_TEMP, place the result in TEMP (trashing LINES in the
-   process); otherwise, place the result back into LINES so that it is
-   an in-place sort (trashing TEMP in the process).
-
    Use a recursive divide-and-conquer algorithm, in the style
-   suggested by Knuth volume 3 (2nd edition), exercise 5.2.4-23.  If
-   multithreaded, this requires that TEMP contain NLINES entries; if
-   singlethreaded, use the optimization suggested by Knuth exercise
-   5.2.4-10, which requires room for only 1.5*N lines, rather than the
-   usual 2*N lines.  Knuth writes that this memory optimization was
-   originally published by D. A. Bell, Comp J. 1 (1958), 75.
+   suggested by Knuth volume 3 (2nd edition), exercise 5.2.4-23.  Use
+   the optimization suggested by exercise 5.2.4-10; this requires room
+   for only 1.5*N lines, rather than the usual 2*N lines.  Knuth
+   writes that this memory optimization was originally published by
+   D. A. Bell, Comp J. 1 (1958), 75.  */
 
-   This function is inline so that its tests for multthreadedness and
-   inplacedness can be optimized away in common cases.  */
- 
 static void
-sortlines (struct line *restrict lines, size_t nlines,
-           struct line *restrict temp,
-           unsigned long int nthreads, bool to_temp)
+sortlines (struct line *lines, size_t nlines, struct line *temp)
 {
   if (nlines == 2)
     {
-      int swap = (0 < compare (&lines[-1], &lines[-2]));
-      if (to_temp)
+      if (0 < compare (&lines[-1], &lines[-2]))
         {
-          temp[-1] = lines[-1 - swap];
-          temp[-2] = lines[-2 + swap];
-        }
-      else if (swap)
-        {
-          temp[-1] = lines[-1];
+          struct line tmp = lines[-1];
           lines[-1] = lines[-2];
-          lines[-2] = temp[-1];
+          lines[-2] = tmp;
         }
     }
   else
@@ -2690,43 +2642,46 @@ sortlines (struct line *restrict lines, size_t nlines,
       size_t nhi = nlines - nlo;
       struct line *lo = lines;
       struct line *hi = lines - nlo;
-      unsigned long int child_subthreads = nthreads / 2;
-      unsigned long int my_subthreads = nthreads - child_subthreads;
-      pthread_t thread;
-      struct thread_args args = {hi, nhi, temp - nlo, child_subthreads,
-                                 to_temp};
+      struct line *sorted_lo = temp;
 
-      if (child_subthreads != 0 && SUBTHREAD_LINES_HEURISTIC <= nlines
-          && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
-        {
-          /* Guarantee that nlo and nhi are each at least 2.  */
-          verify (4 <= SUBTHREAD_LINES_HEURISTIC);
-
-          sortlines (lo, nlo, temp, my_subthreads, !to_temp);
-          pthread_join (thread, NULL);
-        }
+      sortlines (hi, nhi, temp);
+      if (1 < nlo)
+        sortlines_temp (lo, nlo, sorted_lo);
       else
-        {
-          sortlines (hi, nhi, temp - (to_temp ? nlo : 0), 1, to_temp);
-          if (1 < nlo)
-            sortlines (lo, nlo, temp, 1, !to_temp);
-          else if (!to_temp)
-            temp[-1] = lo[-1];
-        }
+        sorted_lo[-1] = lo[-1];
 
-      struct line *dest;
-      struct line const *sorted_lo;
-      if (to_temp)
-        {
-          dest = temp;
-          sorted_lo = lines;
-        }
-      else
-        {
-          dest = lines;
-          sorted_lo = temp;
-        }
-      mergelines (dest, nlines, sorted_lo);
+      mergelines (lines, sorted_lo, nlo, hi, nhi);
+    }
+}
+
+/* Like sortlines (LINES, NLINES, TEMP), except output into TEMP
+   rather than sorting in place.  */
+
+static void
+sortlines_temp (struct line *lines, size_t nlines, struct line *temp)
+{
+  if (nlines == 2)
+    {
+      /* Declare `swap' as int, not bool, to work around a bug
+         <http://lists.gnu.org/archive/html/bug-coreutils/2005-10/msg00086.html>
+         in the IBM xlc 6.0.0.0 compiler in 64-bit mode.  */
+      int swap = (0 < compare (&lines[-1], &lines[-2]));
+      temp[-1] = lines[-1 - swap];
+      temp[-2] = lines[-2 + swap];
+    }
+  else
+    {
+      size_t nlo = nlines / 2;
+      size_t nhi = nlines - nlo;
+      struct line *lo = lines;
+      struct line *hi = lines - nlo;
+      struct line *sorted_hi = temp - nlo;
+
+      sortlines_temp (hi, nhi, sorted_hi);
+      if (1 < nlo)
+        sortlines (lo, nlo, temp);
+
+      mergelines (temp, lo, nlo, sorted_hi, nhi);
     }
 }
 
@@ -2934,7 +2889,7 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
 
 static void
 do_sort (char * const *files, size_t nfiles, char const *output_file,
-         unsigned long int nthreads, const bool should_output)
+         const bool should_output)
 {
   struct buffer buf;
   size_t ntemps = 0;
@@ -2948,11 +2903,8 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
       char const *file = *files;
       FILE *fp = xfopen (file, "r");
       FILE *tfp;
-
-      /* If singlethreaded, the merge uses the memory optimization
-         suggested in Knuth exercise 5.2.4-10; see sortlines.  */
       size_t bytes_per_line = (2 * sizeof (struct line)
-                               - (1 < nthreads ? 0 : sizeof (struct line) / 2));
+                               - sizeof (struct line) / 2);
 
       if (! buf.alloc)
         initbuf (&buf, bytes_per_line,
@@ -2980,7 +2932,7 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
-            sortlines (line, buf.nlines, linebase, nthreads, false);
+            sortlines (line, buf.nlines, linebase);
           if (should_output && buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
@@ -3066,7 +3018,6 @@ sort_thread (void *data)
   char ***device_files = args->device_files;
   int num_devices = args->num_devices;
   int *num_files_on_device = args->num_files_on_device;
-  unsigned long int num_subthreads_per_thread = args->num_subthreads_per_thread;
   int cur_dev = 0;
   int ret_val;
 
@@ -3091,7 +3042,7 @@ sort_thread (void *data)
       if (NULL == files)
         return NULL;
 
-      do_sort (files, num_files_on_device[cur_dev], NULL, num_subthreads_per_thread, false);
+      do_sort (files, num_files_on_device[cur_dev], NULL, false);
 
       // Free the device list here, no one else has a reference to it anymore
       free (files);
@@ -3106,11 +3057,12 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
                 unsigned long int nthreads)
 {
 #if HAVE_LIBPTHREAD != 1
-  do_sort (files, nfiles, output_file, nthreads, true);
+  do_sort (files, nfiles, output_file, true);
 #else
+  fprintf (stderr, "number of threads: %lu\n", nthreads);
   // If we are allowed to use more threads, we should!
   if (nfiles <= 1)
-    do_sort (files, nfiles, output_file, nthreads, true);
+    do_sort (files, nfiles, output_file, true);
   else
     {
       // Determine which files are on which device
@@ -3159,14 +3111,14 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (device_files);
           free (num_files_on_device);
 
-          do_sort (files, nfiles, output_file, nthreads, true);
+          do_sort (files, nfiles, output_file, true);
         }
       else
         {
           // Cap to 16x nthreads
           // This is just a general heuristic. Once you have more threads
           // running, CPU likely becomes the bottleneck rather than IO
-          unsigned long int num_threads_to_use = (unsigned long int) MIN (num_devices, 16 * nthreads);
+          unsigned long int num_threads_to_use = MIN (num_devices, 16 * nthreads);
           unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use + 1;
           pthread_t *threads = xnmalloc (num_threads_to_use, sizeof *threads);
           unsigned long int thread_num = 0;
@@ -3440,8 +3392,8 @@ main (int argc, char **argv)
   bool mergeonly = false;
   char *random_source = NULL;
   bool need_random = false;
-  unsigned long int nthreads = 0;
   size_t nfiles = 0;
+  unsigned long int nthreads = 0;
   bool posixly_correct = (getenv ("POSIXLY_CORRECT") != NULL);
   bool obsolete_usage = (posix2_version () < 200112);
   char **files;
@@ -3919,8 +3871,8 @@ main (int argc, char **argv)
 
   if (need_random)
     {
-      /* Threading does not lock the randread_source structure, so
-         downgrade to one thread to avoid race conditions. */
+      /* Threading does not lock the randread_source structure, so downgrade to
+         one thread to avoid race conditions. */
       nthreads = 1;
       randread_source = randread_new (random_source, MD5_DIGEST_SIZE);
       if (! randread_source)
