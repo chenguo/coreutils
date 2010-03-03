@@ -2595,18 +2595,21 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           size_t mergefiles_set = 0;
           struct sortfile *mergefiles = malloc(numFilesToMerge*sizeof(struct sortfile));
 
+          // Assigns the files to be merged from the original TEMP files
           while(nTemps_used < ntemps && mergefiles_set < numFilesToMerge)
             {
               mergefiles[mergefiles_set] = files[nTemps_used];
               mergefiles_set++;
               nTemps_used++;
             }
+          // Assigns the files to be merged from input files (this only happens when -m is used)
           while(nFiles_used < nfiles && mergefiles_set < numFilesToMerge)
             {
               mergefiles[mergefiles_set] = files[ntemps+nFiles_used];
               mergefiles_set++;
               nFiles_used++;
             }
+          // Assigns the files to be merged from intermediate TEMP files
           while(nNewTemps_used < nNewTemps && mergefiles_set < numFilesToMerge)
             {
               mergefiles[mergefiles_set] = newtemps[nNewTemps_used];
@@ -2616,11 +2619,10 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 fprintf(stderr, "POOP: %d \n", nthreads);
 
           //merge files have been set
+          //Validate mi vs i
           open_input_files(mergefiles, mergefiles_set, &fps); 
           struct merge_args newArg = {mergefiles, (nTemps_used + nNewTemps_used), nFiles_used, newtemps_ptrs[mi], newtemps[mi].name, fps};
           args[i] = newArg;
-          pthread_t thread;
-          pthreads[i] = thread;
           pthread_create(&pthreads[i], NULL, mergefps_thread, (void*)&args[i]);
           mi++;
 
