@@ -2993,7 +2993,6 @@ struct sort_thread_args
   char ***device_files;
   int num_devices;
   int *num_files_on_device;
-  unsigned long int num_subthreads_per_thread;
   pthread_mutex_t mutex;
 };
 
@@ -3115,11 +3114,8 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
         }
       else
         {
-          // Cap to 16x nthreads
-          // This is just a general heuristic. Once you have more threads
-          // running, CPU likely becomes the bottleneck rather than IO
-          unsigned long int num_threads_to_use = MIN (num_devices, 16 * nthreads);
-          unsigned long int num_subthreads_per_thread = nthreads / num_threads_to_use + 1;
+          // There is no point in starting more threads than there are devices
+          unsigned long int num_threads_to_use = MIN (num_devices, nthreads);
           pthread_t *threads = xnmalloc (num_threads_to_use, sizeof *threads);
           unsigned long int thread_num = 0;
           int ret_val;
@@ -3127,8 +3123,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           struct sort_thread_args args = {
             .device_files = device_files,
             .num_devices = num_devices,
-            .num_files_on_device = num_files_on_device,
-            .num_subthreads_per_thread = num_subthreads_per_thread};
+            .num_files_on_device = num_files_on_device};
 
           ret_val = pthread_mutex_init (&args.mutex, NULL);
           pthread_error (ret_val, "error while init'n mutex");
