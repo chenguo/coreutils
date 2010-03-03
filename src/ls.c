@@ -1149,6 +1149,17 @@ restore_default_color (void)
   put_indicator (&color_indicator[C_RIGHT]);
 }
 
+static void
+set_normal_color (void)
+{
+  if (print_with_color && is_colored (C_NORM))
+    {
+      put_indicator (&color_indicator[C_LEFT]);
+      put_indicator (&color_indicator[C_NORM]);
+      put_indicator (&color_indicator[C_RIGHT]);
+    }
+}
+
 /* An ordinary signal was received; arrange for the program to exit.  */
 
 static void
@@ -1442,7 +1453,15 @@ main (int argc, char **argv)
       int j;
 
       if (used_color)
-        restore_default_color ();
+        {
+          /* Skip the restore when it would be a no-op, i.e.,
+             when left is "\033[" and right is "m".  */
+          if (!(color_indicator[C_LEFT].len == 2
+                && memcmp (color_indicator[C_LEFT].string, "\033[", 2) == 0
+                && color_indicator[C_RIGHT].len == 1
+                && color_indicator[C_RIGHT].string[0] == 'm'))
+            restore_default_color ();
+        }
       fflush (stdout);
 
       /* Restore the default signal handling.  */
@@ -3436,6 +3455,7 @@ print_current_files (void)
     case long_format:
       for (i = 0; i < cwd_n_used; i++)
         {
+          set_normal_color ();
           print_long_format (sorted_file[i]);
           DIRED_PUTCHAR ('\n');
         }
@@ -3996,7 +4016,9 @@ print_name_with_quoting (const struct fileinfo *f,
   const char* name = symlink_target ? f->linkname : f->name;
 
   bool used_color_this_time
-    = (print_with_color && print_color_indicator (f, symlink_target));
+    = (print_with_color
+        && (print_color_indicator (f, symlink_target)
+            || is_colored (C_NORM)));
 
   if (stack)
     PUSH_CURRENT_DIRED_POS (stack);
@@ -4039,6 +4061,8 @@ static size_t
 print_file_name_and_frills (const struct fileinfo *f, size_t start_col)
 {
   char buf[MAX (LONGEST_HUMAN_READABLE + 1, INT_BUFSIZE_BOUND (uintmax_t))];
+
+  set_normal_color ();
 
   if (print_inode)
     printf ("%*s ", format == with_commas ? 0 : inode_number_width,
@@ -4210,6 +4234,9 @@ print_color_indicator (const struct fileinfo *f, bool symlink_target)
       = ext ? &(ext->seq) : &color_indicator[type];
     if (s->string != NULL)
       {
+        /* Need to reset so not dealing with attribute combinations */
+        if (is_colored (C_NORM))
+          restore_default_color ();
         put_indicator (&color_indicator[C_LEFT]);
         put_indicator (s);
         put_indicator (&color_indicator[C_RIGHT]);

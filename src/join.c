@@ -137,7 +137,8 @@ static enum
 enum
 {
   CHECK_ORDER_OPTION = CHAR_MAX + 1,
-  NOCHECK_ORDER_OPTION
+  NOCHECK_ORDER_OPTION,
+  HEADER_LINE_OPTION
 };
 
 
@@ -146,6 +147,7 @@ static struct option const longopts[] =
   {"ignore-case", no_argument, NULL, 'i'},
   {"check-order", no_argument, NULL, CHECK_ORDER_OPTION},
   {"nocheck-order", no_argument, NULL, NOCHECK_ORDER_OPTION},
+  {"header", no_argument, NULL, HEADER_LINE_OPTION},
   {GETOPT_HELP_OPTION_DECL},
   {GETOPT_VERSION_OPTION_DECL},
   {NULL, 0, NULL, 0}
@@ -156,6 +158,10 @@ static struct line uni_blank;
 
 /* If nonzero, ignore case when comparing join fields.  */
 static bool ignore_case;
+
+/* If nonzero, treat the first line of each file as column headers -
+   join them without checking for ordering */
+static bool join_header_lines;
 
 void
 usage (int status)
@@ -191,6 +197,8 @@ by whitespace.  When FILE1 or FILE2 (not both) is -, read standard input.\n\
   --check-order     check that the input is correctly sorted, even\n\
                       if all input lines are pairable\n\
   --nocheck-order   do not check that the input is correctly sorted\n\
+  --header          treat the first line in each file as field headers,\n\
+                      print them without trying to pair them\n\
 "), stdout);
       fputs (HELP_OPTION_DESCRIPTION, stdout);
       fputs (VERSION_OPTION_DESCRIPTION, stdout);
@@ -204,7 +212,8 @@ the remaining fields from FILE1, the remaining fields from FILE2, all\n\
 separated by CHAR.\n\
 \n\
 Important: FILE1 and FILE2 must be sorted on the join fields.\n\
-E.g., use `sort -k 1b,1' if `join' has no options.\n\
+E.g., use ` sort -k 1b,1 ' if `join' has no options,\n\
+or use ` join -t '' ' if `sort' has no options.\n\
 Note, comparisons honor the rules specified by `LC_COLLATE'.\n\
 If the input is not sorted and some lines cannot be joined, a\n\
 warning message will be given.\n\
@@ -272,7 +281,10 @@ xfields (struct line *line)
 static void
 freeline (struct line *line)
 {
+  if (line == NULL)
+    return;
   free (line->fields);
+  line->fields = NULL;
   free (line->buf.buffer);
   line->buf.buffer = NULL;
 }
@@ -486,12 +498,10 @@ delseq (struct seq *seq)
 {
   size_t i;
   for (i = 0; i < seq->alloc; i++)
-    if (seq->lines[i])
-      {
-        if (seq->lines[i]->buf.buffer)
-          freeline (seq->lines[i]);
-        free (seq->lines[i]);
-      }
+    {
+      freeline (seq->lines[i]);
+      free (seq->lines[i]);
+    }
   free (seq->lines);
 }
 
@@ -604,17 +614,23 @@ static void
 join (FILE *fp1, FILE *fp2)
 {
   struct seq seq1, seq2;
-  struct line **linep = xmalloc (sizeof *linep);
   int diff;
-  bool eof1, eof2, checktail;
-
-  *linep = NULL;
+  bool eof1, eof2;
 
   /* Read the first line of each file.  */
   initseq (&seq1);
   getseq (fp1, &seq1, 1);
   initseq (&seq2);
   getseq (fp2, &seq2, 2);
+
+  if (join_header_lines && seq1.count && seq2.count)
+    {
+      prjoin(seq1.lines[0], seq2.lines[0]);
+      prevline[0] = NULL;
+      prevline[1] = NULL;
+      advance_seq (fp1, &seq1, true, 1);
+      advance_seq (fp2, &seq2, true, 2);
+    }
 
   while (seq1.count && seq2.count)
     {
@@ -691,25 +707,26 @@ join (FILE *fp1, FILE *fp2)
         seq2.count = 0;
     }
 
-  /* If the user did not specify --check-order, and the we read the
+  /* If the user did not specify --check-order, then we read the
      tail ends of both inputs to verify that they are in order.  We
      skip the rest of the tail once we have issued a warning for that
      file, unless we actually need to print the unpairable lines.  */
+  struct line *line = NULL;
+  bool checktail = false;
+
   if (check_input_order != CHECK_ORDER_DISABLED
       && !(issued_disorder_warning[0] && issued_disorder_warning[1]))
     checktail = true;
-  else
-    checktail = false;
 
   if ((print_unpairables_1 || checktail) && seq1.count)
     {
       if (print_unpairables_1)
         prjoin (seq1.lines[0], &uni_blank);
       seen_unpairable = true;
-      while (get_line (fp1, linep, 1))
+      while (get_line (fp1, &line, 1))
         {
           if (print_unpairables_1)
-            prjoin (*linep, &uni_blank);
+            prjoin (line, &uni_blank);
           if (issued_disorder_warning[0] && !print_unpairables_1)
             break;
         }
@@ -720,18 +737,18 @@ join (FILE *fp1, FILE *fp2)
       if (print_unpairables_2)
         prjoin (&uni_blank, seq2.lines[0]);
       seen_unpairable = true;
-      while (get_line (fp2, linep, 2))
+      while (get_line (fp2, &line, 2))
         {
           if (print_unpairables_2)
-            prjoin (&uni_blank, *linep);
+            prjoin (&uni_blank, line);
           if (issued_disorder_warning[1] && !print_unpairables_2)
             break;
         }
     }
 
-  free (*linep);
+  freeline (line);
+  free (line);
 
-  free (linep);
   delseq (&seq1);
   delseq (&seq2);
 }
@@ -1024,8 +1041,8 @@ main (int argc, char **argv)
           {
             unsigned char newtab = optarg[0];
             if (! newtab)
-              error (EXIT_FAILURE, 0, _("empty tab"));
-            if (optarg[1])
+              newtab = '\n'; /* '' => process the whole line.  */
+            else if (optarg[1])
               {
                 if (STREQ (optarg, "\\0"))
                   newtab = '\0';
@@ -1050,6 +1067,10 @@ main (int argc, char **argv)
         case 1:		/* Non-option argument.  */
           add_file_name (optarg, names, operand_status, joption_count,
                          &nfiles, &prev_optc_status, &optc_status);
+          break;
+
+        case HEADER_LINE_OPTION:
+          join_header_lines = true;
           break;
 
         case_GETOPT_HELP_CHAR;

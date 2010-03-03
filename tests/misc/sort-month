@@ -1,7 +1,7 @@
 #!/bin/sh
-# ensure that ls --color works well when a colored name is wrapped
+# Test sorting of abbreviated months from the locale
 
-# Copyright (C) 2009-2010 Free Software Foundation, Inc.
+# Copyright (C) 2010 Free Software Foundation, Inc.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,28 +18,21 @@
 
 if test "$VERBOSE" = yes; then
   set -x
-  ls --version
+  sort --version
 fi
 
 . $srcdir/test-lib.sh
 
-long_name=zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.foo
-touch $long_name || framework_failure
+locale --version >/dev/null 2>&1 ||
+  skip_test_ 'The locale utility is not present'
 
-e='\33'
-color_code='0;31;42'
-c_pre="$e[0m$e[${color_code}m"
-c_post="$e[0m$e[K\n"
-printf "$c_pre$long_name$c_post\n" > exp || framework_failure
-
-env TERM=xterm COLUMNS=80 LS_COLORS="*.foo=$color_code" TIME_STYLE=+T \
-  ls -og --color=always $long_name > out || fail=1
-
-# Append a newline, to accommodate less-capable versions of sed.
-echo >> out || fail=1
-
-sed 's/.*T //' out > k && mv k out
-
-compare out exp || fail=1
+# C will be used if the locale is not present
+for LOC in "$LOCALE_FR" "$LOCALE_FR_UTF8" "ja_JP.utf8"; do
+  mon="$(LC_ALL="$LOC" locale abmon 2>/dev/null);"
+  smon=$(LC_ALL="$LOC" locale abmon 2>/dev/null |
+          tr ';' '\n' | shuf | nl | LC_ALL="$LOC" sort -b -k2,2M |
+          cut -f2 | tr '\n' ';')
+  test "$mon" = "$smon" || { fail=1; break; }
+done
 
 Exit $fail

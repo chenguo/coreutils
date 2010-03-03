@@ -225,6 +225,7 @@ TESTS =						\
   misc/sort-files0-from				\
   misc/sort-merge				\
   misc/sort-merge-fdlimit			\
+  misc/sort-month				\
   misc/sort-rand				\
   misc/sort-version				\
   misc/split-a					\
@@ -370,6 +371,7 @@ TESTS =						\
   ls/abmon-align				\
   ls/color-clear-to-eol				\
   ls/color-dtype-dir				\
+  ls/color-norm					\
   ls/dangle					\
   ls/dired					\
   ls/file-type					\

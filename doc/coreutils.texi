@@ -53,7 +53,7 @@
 * df: (coreutils)df invocation.                 Report file system disk usage.
 * dir: (coreutils)dir invocation.               List directories briefly.
 * dircolors: (coreutils)dircolors invocation.   Color setup for ls.
-* dirname: (coreutils)dirname invocation.       Strip non-directory suffix.
+* dirname: (coreutils)dirname invocation.       Strip last file name component.
 * du: (coreutils)du invocation.                 Report on disk usage.
 * echo: (coreutils)echo invocation.             Print a line of text.
 * env: (coreutils)env invocation.               Modify the environment.
@@ -377,7 +377,7 @@ Redirection
 File name manipulation
 
 * basename invocation::          Strip directory and suffix from a file name
-* dirname invocation::           Strip non-directory suffix from a file name
+* dirname invocation::           Strip last file name component
 * pathchk invocation::           Check file name validity and portability
 * mktemp invocation::            Create temporary file or directory
 
@@ -5462,6 +5462,8 @@ locales and options if the output of @command{sort} is fed to
 sort a file on its default join field, but if you select a non-default
 locale, join field, separator, or comparison options, then you should
 do so consistently between @command{join} and @command{sort}.
+If @samp{join -t ''} is specified then the whole line is considered which
+matches the default operation of sort.
 
 If the input has no unpairable lines, a @acronym{GNU} extension is
 available; the sort order can be any order that considers two fields
@@ -5515,6 +5517,15 @@ Do not check that both input files are in sorted order.  This is the default.
 Replace those output fields that are missing in the input with
 @var{string}.
 
+@item --header
+@opindex --header
+Treat the first line of each input file as a header line. The header lines will
+be joined and printed as the first output line.  If @option{-o} is used to
+specify output format, the header line will be printed according to the
+specified format.  The header lines will not be checked for ordering even if
+@option{--check-order} is specified.  Also if the header lines from each file
+do not match, the heading fields from the first file will be used.
+
 @item -i
 @itemx --ignore-case
 @opindex -i
@@ -5563,7 +5574,10 @@ option---are subject to the specified @var{field-list}.
 Use character @var{char} as the input and output field separator.
 Treat as significant each occurrence of @var{char} in the input file.
 Use @samp{sort -t @var{char}}, without the @option{-b} option of
-@samp{sort}, to produce this ordering.
+@samp{sort}, to produce this ordering.  If @samp{join -t ''} is specified,
+the whole line is considered, matching the default operation of sort.
+If @samp{-t '\0'} is specified then the @acronym{ASCII} @sc{nul}
+character is used to delimit the fields.
 
 @item -v @var{file-number}
 Print a line for each unpairable line in file @var{file-number}
@@ -11888,7 +11902,7 @@ This section describes commands that manipulate file names.
 
 @menu
 * basename invocation::         Strip directory and suffix from a file name.
-* dirname invocation::          Strip non-directory suffix from a file name.
+* dirname invocation::          Strip last file name component.
 * pathchk invocation::          Check file name validity and portability.
 * mktemp invocation::           Create temporary file or directory.
 @end menu
@@ -11949,7 +11963,7 @@ basename include/stdio.h .h
 
 
 @node dirname invocation
-@section @command{dirname}: Strip non-directory suffix from a file name
+@section @command{dirname}: Strip last file name component
 
 @pindex dirname
 @cindex directory components, printing
@@ -11957,7 +11971,7 @@ basename include/stdio.h .h
 @cindex non-directory suffix, stripping
 
 @command{dirname} prints all but the final slash-delimited component of
-a string (presumably a file name).  Synopsis:
+a string (presumably a file name, but also works on directories).  Synopsis:
 
 @example
 dirname @var{name}

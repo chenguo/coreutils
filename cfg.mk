@@ -93,7 +93,8 @@ sc_root_tests:
 # stays in sync with corresponding files in the repository.
 sce = syntax_check_exceptions
 sc_x_sc_dist_check:
-	@test "$$( ($(VC_LIST) | sed -n '/^.x-sc_/p';			\
+	@test "$$( ($(VC_LIST) | sed -n '/\.x-sc_/p'			\
+		     | sed 's|^$(_dot_escaped_srcdir)/||';		\
 		   sed -n '/^$(sce) =[	 ]*\\$$/,/[^\]$$/p'		\
 		     $(srcdir)/Makefile.am				\
 		       | sed 's/^  *//;/^$(sce) =/d'			\
@@ -164,11 +165,26 @@ sc_sun_os_names:
 
 ALL_RECURSIVE_TARGETS += sc_tight_scope
 sc_tight_scope:
-	@$(MAKE) -C src $@
+	@$(MAKE) -s -C src $@
 
 ALL_RECURSIVE_TARGETS += sc_check-AUTHORS
 sc_check-AUTHORS:
-	@$(MAKE) -C src $@
+	@$(MAKE) -s -C src $@
+
+# Option descriptions should not start with a capital letter
+# One could grep source directly as follows:
+# grep -E " {2,6}-.*[^.]  [A-Z][a-z]" $$($(VC_LIST_EXCEPT) | grep '\.c$$')
+# but that would miss descriptions not on the same line as the -option.
+ALL_RECURSIVE_TARGETS += sc_option_desc_uppercase
+sc_option_desc_uppercase:
+	@$(MAKE) -s -C src all_programs
+	@$(MAKE) -s -C man $@
+
+# Ensure all man/*.[1x] files are present
+ALL_RECURSIVE_TARGETS += sc_man_file_correlation
+sc_man_file_correlation:
+	@$(MAKE) -s -C src all_programs
+	@$(MAKE) -s -C man $@
 
 # Perl-based tests used to exec perl from a #!/bin/sh script.
 # Now they all start with #!/usr/bin/perl and the portability
@@ -202,7 +218,7 @@ sc_strftime_check:
 	  grep '^  %.  ' $(srcdir)/src/date.c | sort			\
 	    | $(extract_char) > $@-src;					\
 	  { echo N;							\
-	    info libc date calendar format | grep '^    `%.'\'		\
+	    info libc date calendar format 2>/dev/null|grep '^    `%.'\'\
 	      | $(extract_char); } | sort > $@-info;			\
 	  diff -u $@-src $@-info || exit 1;				\
 	  rm -f $@-src $@-info;						\
