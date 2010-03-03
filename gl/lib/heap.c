@@ -18,10 +18,8 @@
 /* Full implementation: GDSL (http://gna.org/projects/gdsl/) by Nicolas
    Darnis <ndarnis@free.fr>. Adapted by Gene Auyeung. */
 
-#include <assert.h>
 #include "stdlib--.h"
 #include "heap.h"
-
 
 /* Internal methods prototypes */
 static int heap_default_compare (const void *, const void *);
@@ -70,7 +68,6 @@ heap_default_compare (const void *a, const void *b)
 void
 heap_free (struct heap *heap)
 {
-    assert (heap != NULL);
     free (heap->array);
     free (heap);
 }
@@ -79,7 +76,6 @@ heap_free (struct heap *heap)
 int
 heap_insert (struct heap *heap, void *item)
 {
-  assert (heap != NULL);
 
   if (heap->capacity - 1 <= heap->count)
     {
@@ -101,8 +97,6 @@ heap_insert (struct heap *heap, void *item)
 void *
 heap_remove_top (struct heap *heap)
 {
-    assert (heap);
-
     if (heap->count == 0)
       return NULL;
 

@@ -245,7 +245,6 @@ struct merge_node_queue
   pthread_mutex_t mutex;        /* Mutex for conditional wait. */
   pthread_cond_t cond;          /* Conditional variable for when queue is
                                    empty. */
-  size_t size;                  /* Number of nodes currently in the queue. */
 };
 
 /* FIXME: None of these tables work with multibyte character sets.
@@ -2775,7 +2774,6 @@ queue_init (struct merge_node_queue *const restrict queue, size_t reserve)
   queue->priority_queue = (struct heap *) heap_alloc (compare_nodes, reserve);
   pthread_mutex_init (&queue->mutex, NULL);
   pthread_cond_init (&queue->cond, NULL);
-  queue->size = 0;
 }
 
 /* Insert work unit into priority queue. Assume NODE is already locked, or
@@ -2786,10 +2784,9 @@ queue_insert (struct merge_node_queue *const restrict queue,
 {
   pthread_mutex_lock (&queue->mutex);
   heap_insert (queue->priority_queue, node);
-  queue->size++;
+  node->queued = true;
   pthread_mutex_unlock (&queue->mutex);
   pthread_cond_signal (&queue->cond);
-  node->queued = true;
 }
 
 /* Pop priority queue. Return a spin locked node.  */
@@ -2803,11 +2800,8 @@ queue_pop (struct merge_node_queue *const restrict queue)
     {
       /*  Go into condtional wait. */
       pthread_mutex_lock (&queue->mutex);
-      if (queue->size)
-        {
-          queue->size--;
-          ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
-        }
+      if (queue->priority_queue->count)
+        ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
       else
         pthread_cond_wait (&queue->cond, &queue->mutex);
 
@@ -2902,12 +2896,12 @@ check_insert (struct merge_node *node,
   size_t nlo = node->nlo;
   size_t nhi = node->nhi;
 
-  if (!node->queued &&
-      ((lo_avail && (hi_avail || !nhi))
-       || (hi_avail && !nlo)))
+  if ((!node->queued)
+      && ((lo_avail && (hi_avail || !nhi))
+          || (hi_avail && !nlo)))
     {
       queue_insert (queue, node);
-    }
+    } 
 }
 
 /* Update parent merge node. */
@@ -2915,15 +2909,15 @@ static inline void
 update_parent (struct merge_node *const restrict node, size_t merged,
                struct merge_node_queue *const restrict queue)
 {
-  if (node->level == 1 && node->nlo + node->nhi == 0)
-    queue_insert (queue, node->parent);
-  else if (node->level != 1)
+  if (node->level > 1)
     {
       lock_node (node->parent);
       *node->parent_end -= merged;
       check_insert (node->parent, queue);
       unlock_node (node->parent);
     }
+  else if (node->nlo + node->nhi == 0)
+    queue_insert (queue, node->parent);
 }
 
 /* Repeatedly completes work in work_units in queue. */
@@ -3000,7 +2994,7 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
 
       /* Create struct with mininal members needed by update_parent. */
       struct merge_node node =
-        {NULL, NULL, NULL, NULL, NULL, parent_end, 0, 0, 0,
+        {lines, lines - 1,lines - 1, lines - 2, dest, parent_end, 0, 0, 0,
          parent->level + 1, parent, false, NULL};
 
       update_parent (&node, nlines, merge_queue);
@@ -3276,7 +3270,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
 
       size_t bytes_per_line;
       {
-        /* Get log P + 1. */
+        /* Get log P. */
         unsigned long int tmp = 1;
         size_t mult = 2;
         while (tmp < nthreads)
@@ -3335,9 +3329,9 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               struct merge_node node =
                 {NULL, NULL, NULL, NULL, NULL, NULL, 0,
                  0, buf.nlines, 0, NULL, false, &lock};
-              sortlines (line, linebase, nthreads, buf.nlines, &node, NULL,
-                         &merge_queue, tfp, temp_output);
 
+              sortlines (line, line, nthreads, buf.nlines, &node, NULL,
+                         &merge_queue, tfp, temp_output);
               queue_destroy (&merge_queue);
             }
 
