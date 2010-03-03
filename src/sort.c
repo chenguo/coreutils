@@ -3105,7 +3105,9 @@ static void
 sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
                 unsigned long int nthreads)
 {
-#if HAVE_LIBPTHREAD
+#if HAVE_LIBPTHREAD != 1
+  do_sort (files, nfiles, output_file, nthreads, true);
+#else
   // If we are allowed to use more threads, we should!
   if (nfiles <= 1)
     do_sort (files, nfiles, output_file, nthreads, true);
@@ -3225,8 +3227,6 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           }
         }
     }
-#else
-  do_sort (files, nfiles, output_file, nthreads, true);
 #endif
 }
 
