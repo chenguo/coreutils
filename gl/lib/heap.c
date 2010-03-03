@@ -20,6 +20,7 @@
 
 #include "stdlib--.h"
 #include "heap.h"
+#include "xalloc.h"
 
 /* Internal methods prototypes */
 static int heap_default_compare (const void *, const void *);
@@ -35,14 +36,14 @@ struct heap *
 heap_alloc (int (*compare)(const void *, const void *), size_t n_reserve)
 {
   struct heap *heap;
-  heap = (struct heap *) malloc (sizeof *heap);
+  heap = (struct heap *) xmalloc (sizeof *heap);
   if (!heap)
     return NULL;
 
   if (n_reserve <= 0)
       n_reserve = 1;
 
-  heap->array = (void **) malloc (n_reserve * sizeof *(heap->array));
+  heap->array = (void **) xmalloc (n_reserve * sizeof *(heap->array));
   if (!heap->array)
     {
       free (heap);
@@ -80,7 +81,7 @@ heap_insert (struct heap *heap, void *item)
   if (heap->capacity - 1 <= heap->count)
     {
       size_t new_size = (2 + heap->count) * sizeof *(heap->array);
-      heap->array = (void **) realloc (heap->array, new_size);
+      heap->array = (void **) xrealloc (heap->array, new_size);
       heap->capacity = (2 + heap->count);
 
       if (!heap->array)
