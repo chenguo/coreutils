@@ -50,6 +50,26 @@
 
 #if HAVE_LIBPTHREAD
 # include <pthread.h>
+
+# define xpthread_error(rv) { \
+    if (rv) \
+      { \
+        error (SORT_FAILURE, 0, _("%d: %s\n"), rv, strerror (ret_val)); \
+        exit (SORT_FAILURE); \
+      } \
+}
+# define xpthread_mutex_init(mutex, attr) { \
+    int rv = pthread_mutex_init (mutex, attr); \
+    xpthread_error (rv); \
+}
+# define xpthread_mutex_lock(mutex) { \
+    int rv = pthread_mutex_lock (mutex); \
+    xpthread_error (rv); \
+}
+# define xpthread_mutex_unlock(mutex) { \
+    int rv = pthread_mutex_unlock (mutex); \
+    xpthread_error (rv); \
+}
 #endif
 
 #if HAVE_SYS_RESOURCE_H
@@ -713,13 +733,17 @@ wait_proc (pid_t pid)
    This doesn't block waiting for any of them, it only reaps those
    that are already dead.  */
 
+pthread_mutex_t reap_lock;
+
 static void
 reap_some (void)
 {
   pid_t pid;
 
+  xpthread_mutex_lock (&reap_lock);
   while (0 < nprocs && (pid = reap (-1)))
     update_proc (pid);
+  xpthread_mutex_unlock (&reap_lock);
 }
 
 /* Clean up any remaining temporary files.  */
@@ -940,15 +964,21 @@ pipe_fork (int pipefds[2], size_t tries)
    fails, return NULL if the failure is due to file descriptor
    exhaustion and SURVIVE_FD_EXHAUSTION; otherwise, die.  */
 
+pthread_mutex_t temp_file_lock;
+
 static char *
 maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
 {
+  xpthread_mutex_lock (&temp_file_lock);
   int tempfd;
   struct tempnode *node = create_temp_file (&tempfd, survive_fd_exhaustion);
   char *name;
 
   if (! node)
-    return NULL;
+    {
+      xpthread_unlock (&temp_file_lock);
+      return NULL;
+    }
 
   name = node->name;
 
@@ -988,6 +1018,7 @@ maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
   if (ppid)
     *ppid = node->pid;
 
+  xpthread_unlock_mutex (&temp_file_lock);
   return name;
 }
 
@@ -1888,6 +1919,9 @@ getmonth (char const *month, size_t len)
 /* A source of random data.  */
 static struct randread_source *randread_source;
 
+/* A mutex to lock randread_source function */
+pthread_mutex_t randread_lock;
+
 /* Return the Ith randomly-generated state.  The caller must invoke
    random_state (H) for all H less than I before invoking random_state
    (I).  */
@@ -1915,7 +1949,10 @@ random_state (size_t i)
           s = &state[i];
         }
 
+      xpthread_mutex_lock (&randread_lock);
       randread (randread_source, buf, sizeof buf);
+      xpthread_mutex_unlock (&randread_lock);
+
       md5_init_ctx (s);
       md5_process_bytes (buf, sizeof buf, s);
     }
@@ -3602,6 +3639,7 @@ main (int argc, char **argv)
           if (compress_program && !STREQ (compress_program, optarg))
             error (SORT_FAILURE, 0, _("multiple compress programs specified"));
           compress_program = optarg;
+          xpthread_mutex_init (&reap_lock, NULL);
           break;
 
         case FILES0_FROM_OPTION:
@@ -3868,9 +3906,7 @@ main (int argc, char **argv)
 
   if (need_random)
     {
-      /* Threading does not lock the randread_source structure, so downgrade to
-         one thread to avoid race conditions. */
-      nthreads = 1;
+      xpthread_mutex_init (&randread_lock, NULL);
       randread_source = randread_new (random_source, MD5_DIGEST_SIZE);
       if (! randread_source)
         die (_("open failed"), random_source);
