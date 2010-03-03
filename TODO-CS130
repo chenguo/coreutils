@@ -1,13 +1,17 @@
 TODO:
+13) Double check Glen's test script. I've actually no clue what it does.
+
+
+Tentatively Completed:
 1) Optimize merge_work further. Merge_work is ~4% of runtime.
    (Chen: Likely done... At least I'm out of ideas)
 
 2) Find optimal expression for MAX_MERGE
-   (chen: Likely done.)
+   (Chen: Likely done)
 
 4) Polish code (i.e. comments, formatting)
-
-12) Properly comment sortlines().
+   (Chen: make syntax-check and git diff --check pass. Cleanup likely
+          95% done)
 
 
 Completed:
@@ -43,4 +47,7 @@ Completed:
 
 11) Fix lock up bug, occurs most frequently sorting small files using few
       threads.
+    (Chen: done)
+
+12) Properly comment sortlines().
     (Chen: done)
