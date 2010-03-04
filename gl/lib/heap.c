@@ -20,8 +20,8 @@
 
 #include <config.h>
 
-#include "stdlib--.h"
 #include "heap.h"
+#include "stdlib--.h"
 #include "xalloc.h"
 
 static int heap_default_compare (const void *, const void *);
@@ -113,7 +113,7 @@ heap_remove_top (struct heap *heap)
   return top;
 }
 
-/* Move element down into appropriate position in heap. */ 
+/* Move element down into appropriate position in heap. */
 
 static size_t
 heapify_down (void **array, size_t count, size_t initial,
@@ -140,7 +140,7 @@ heapify_down (void **array, size_t count, size_t initial,
   return parent;
 }
 
-/* Move element up into appropriate position in heap. */ 
+/* Move element up into appropriate position in heap. */
 
 static void
 heapify_up (void **array, size_t count,
