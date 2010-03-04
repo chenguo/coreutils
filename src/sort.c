@@ -1310,8 +1310,7 @@ specify_sort_size (int oi, char c, char const *s)
   xstrtol_fatal (e, oi, c, long_options, s);
 }
 
-/* TODO cs130: change to size_t? unsigned long int seems extreme.
-   Specify the number of threads to spawn during internal sort. */
+/* Specify the number of threads to spawn during internal sort. */
 static unsigned long int
 specify_nthreads (int oi, char c, char const *s)
 {
@@ -3149,7 +3148,17 @@ group_files_by_device (char * const *files, size_t nfiles,
   return ndevs;
 }
 
-/* Sort NFILES FILES onto OUTPUT_FILE. */
+/* Sort NFILES FILES onto OUTPUT_FILE.
+
+   Threading approach: Break FILES up into several groups where each contains
+   only files that can be found on the same physical device (according to
+   device_cmp()). Spawn threads to execute do_sort() on each group of files in
+   parallel.
+
+   This allows for all concerned resources (storage devices and processors) to
+   be more fully utilized.
+*/
+
 static void
 sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
                 unsigned long int nthreads)
