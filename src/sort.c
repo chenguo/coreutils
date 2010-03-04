@@ -50,7 +50,6 @@
 
 #if HAVE_LIBPTHREAD
 # include <pthread.h>
-
 # define xpthread_error(rv) { \
     if (rv) \
       { \
@@ -70,6 +69,11 @@
     int rv = pthread_mutex_unlock (mutex); \
     xpthread_error (rv); \
 }
+#else
+# define xpthread_error(rv)
+# define xpthread_mutex_init(mutex, attr)
+# define xpthread_mutex_lock(mutex)
+# define xpthread_mutex_unlock(mutex)
 #endif
 
 #if HAVE_SYS_RESOURCE_H
@@ -3034,15 +3038,6 @@ struct sort_multidisk_thread_args
   pthread_mutex_t mutex;
 };
 
-#define pthread_error(ret_val, msg) {                               \
-    if (ret_val)                                                    \
-      {                                                             \
-        error (SORT_FAILURE, 0, _("%s - %d: %s\n"), msg, ret_val,   \
-               strerror (ret_val));                                 \
-        exit (SORT_FAILURE);                                        \
-      }                                                             \
-}
-
 /* Tries to sort files from one device at a time. Multiple instances can run
    with the same arguments concurrently. Each instance will sort the files from
    a different device. */
@@ -3064,7 +3059,7 @@ sort_multidisk_thread (void *data)
 
       // Find next available list of device files to sort
       ret_val = pthread_mutex_lock (&args->mutex);
-      pthread_error (ret_val, "error while locking mutex");
+      xpthread_error (ret_val, "error while locking mutex");
       for (; cur_dev < ndevs; cur_dev++)
         {
           if (NULL == (files = dev_files[cur_dev]))
@@ -3074,7 +3069,7 @@ sort_multidisk_thread (void *data)
           break;
         }
       ret_val = pthread_mutex_unlock (&args->mutex);
-      pthread_error (ret_val, "error while unlocking mutex");
+      xpthread_error (ret_val, "error while unlocking mutex");
 
       if (NULL == files)
         return NULL;
@@ -3164,7 +3159,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
             .nfiles = nfiles_on_dev};
 
           ret_val = pthread_mutex_init (&args.mutex, NULL);
-          pthread_error (ret_val, "error while init'n mutex");
+          xpthread_error (ret_val, "error while init'n mutex");
 
           // Spawn threads to sort the device lists. The threads will keep
           // running until all of the device lists have been sorted.
@@ -3172,7 +3167,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
             {
               ret_val = pthread_create (&threads[tid], NULL,
                                         sort_multidisk_thread, &args);
-              pthread_error (ret_val, "error while creating a thread");
+              xpthread_error (ret_val, "error while creating a thread");
             }
 
           // Wait for each thread to finish before merging
@@ -3183,7 +3178,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           for (tid = 0; tid < nthreads_to_use; tid++)
             {
               ret_val = pthread_join (threads[tid], NULL);
-              pthread_error (ret_val, "error while joining a thread");
+              xpthread_error (ret_val, "error while joining a thread");
             }
 
           free (threads);
@@ -3193,7 +3188,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (nfiles_on_dev);
 
           ret_val = pthread_mutex_destroy (&args.mutex);
-          pthread_error (ret_val, "error while destroying mutex");
+          xpthread_error (ret_val, "error while destroying mutex");
 
           // Merge all the temp files created by the threads
           {
