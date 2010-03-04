@@ -94,6 +94,9 @@ struct rlimit { size_t rlim_cur; };
 # define DEFAULT_TMPDIR "/tmp"
 #endif
 
+/* Maximum number of lines to merge every time a NODE is taken from
+   the MERGE_QUEUE.  Node is at level LEVEL in the binary merge tree,
+   and is responsible for merging TOTAL lines. */
 #define MAX_MERGE(total, level) ((total) / ((2 << level) * (2 << level)) + 1)
 
 /* Heuristic value for the number of lines for which it is worth
@@ -1634,7 +1637,6 @@ limfield (const struct line *line, const struct keyfield *key)
 static bool
 fillbuf (struct buffer *buf, FILE *fp, char const *file)
 {
-//  START_TIMER();
   struct keyfield const *key = keylist;
   char eol = eolchar;
   size_t line_bytes = buf->line_bytes;
@@ -2262,9 +2264,6 @@ keycompare (const struct line *a, const struct line *b)
 static int
 compare (const struct line *a, const struct line *b)
 {
-  #ifdef FUNC_NAMES_ON
-  mikeprintf("compare()...");
-  #endif
   int diff;
   size_t alen, blen;
 
@@ -2291,9 +2290,6 @@ compare (const struct line *a, const struct line *b)
   else if (! (diff = memcmp (a->text, b->text, MIN (alen, blen))))
     diff = alen < blen ? -1 : alen != blen;
 
-  #ifdef FUNC_NAMES_ON
-  mikeprintf("compare() returned\n");
-  #endif
   return reverse ? -diff : diff;
 }
 
@@ -2774,7 +2770,7 @@ queue_destroy (struct merge_node_queue *const restrict queue)
 }
 
 /* Initialize merge QUEUE, allocating space for a maximum of RESERVE nodes.
-   Though it's highly unlikely, RESERVE should accomodate all merge nodes,
+   Though it's highly unlikely, RESERVE should accommodate all merge nodes,
    plus a NULL leading entry for the heap, i.e. 2 * NTHREADS. */
 
 static inline void
@@ -2812,7 +2808,7 @@ queue_pop (struct merge_node_queue *const restrict queue)
       if (queue->priority_queue->count)
         node = (struct merge_node *) heap_remove_top (queue->priority_queue);
       else
-        /*  Go into condtional wait if no NODE is immediately
+        /*  Go into conditional wait if no NODE is immediately
             available. */
         pthread_cond_wait (&queue->cond, &queue->mutex);
       pthread_mutex_unlock (&queue->mutex);
@@ -3012,9 +3008,9 @@ sortlines_thread (void *data)
    sortlines, half the available threads are assigned to each recursive
    call, until a leaf node having only 1 available thread is reached.
 
-   Each leat node then performs two sequential sorts, one on each half of
-   the lines it is responsible for. It records in its NODE structure that 
-   there are two sorted sublists availale to merge from, and inserts its
+   Each leaf node then performs two sequential sorts, one on each half of
+   the lines it is responsible for. It records in its NODE structure that
+   there are two sorted sublists available to merge from, and inserts its
    NODE into the priority queue.
 
    The binary merge phase then begins. Each thread drops into a loop
@@ -4136,7 +4132,7 @@ main (int argc, char **argv)
   else
     {
       /* If NTHREADS > number of cores on the machine, spinlocking
-         could wasteful. */
+         could be wasteful. */
       unsigned long int np2 = num_processors (NPROC_ALL);
       if (!nthreads || nthreads > np2)
         nthreads = np2;
