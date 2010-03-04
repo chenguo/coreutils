@@ -4159,6 +4159,13 @@ sort -n -r
 @end example
 
 @item
+Sort using no more than 4 threads, using a buffer size of 10M.
+
+@example
+sort --threads=4 -S 10M
+@end example
+
+@item
 Sort alphabetically, omitting the first and second fields
 and the blanks at the start of the third field.
 This uses a single key composed of the characters beginning
