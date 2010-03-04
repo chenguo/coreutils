@@ -50,24 +50,24 @@
 
 #if HAVE_LIBPTHREAD
 # include <pthread.h>
-# define xpthread_error(rv) { \
+# define xpthread_error(rv, msg) { \
     if (rv) \
       { \
-        error (SORT_FAILURE, 0, _("%d: %s\n"), rv, strerror (ret_val)); \
+        error (SORT_FAILURE, 0, _("%s - %d: %s\n"), msg, rv, strerror (rv)); \
         exit (SORT_FAILURE); \
       } \
 }
 # define xpthread_mutex_init(mutex, attr) { \
     int rv = pthread_mutex_init (mutex, attr); \
-    xpthread_error (rv); \
+    xpthread_error (rv, "pthread_mutex_init"); \
 }
 # define xpthread_mutex_lock(mutex) { \
     int rv = pthread_mutex_lock (mutex); \
-    xpthread_error (rv); \
+    xpthread_error (rv, "pthread_mutex_lock"); \
 }
 # define xpthread_mutex_unlock(mutex) { \
     int rv = pthread_mutex_unlock (mutex); \
-    xpthread_error (rv); \
+    xpthread_error (rv, "pthread_mutex_unlock"); \
 }
 #else
 # define xpthread_error(rv)
@@ -980,7 +980,7 @@ maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
 
   if (! node)
     {
-      xpthread_unlock (&temp_file_lock);
+      xpthread_mutex_unlock (&temp_file_lock);
       return NULL;
     }
 
@@ -1022,7 +1022,7 @@ maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
   if (ppid)
     *ppid = node->pid;
 
-  xpthread_unlock_mutex (&temp_file_lock);
+  xpthread_mutex_unlock (&temp_file_lock);
   return name;
 }
 
