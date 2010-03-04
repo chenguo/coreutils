@@ -106,7 +106,6 @@ struct rlimit { size_t rlim_cur; };
    this number has any practical effect.  */
 enum { SUBTHREAD_LINES_HEURISTIC = 4 };
 
-/* Maximum number of lines that can be merged at once. */
 /* Exit statuses.  */
 enum
   {
@@ -4133,7 +4132,7 @@ main (int argc, char **argv)
     {
       /* If NTHREADS > number of cores on the machine, spinlocking
          could be wasteful. */
-      unsigned long int np2 = num_processors (NPROC_ALL);
+      unsigned long int np2 = num_processors (NPROC_CURRENT_OVERRIDABLE);
       if (!nthreads || nthreads > np2)
         nthreads = np2;
 
