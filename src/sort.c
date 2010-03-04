@@ -132,6 +132,16 @@ enum
     MAX_FORK_TRIES_DECOMPRESS = 9
   };
 
+enum
+  {
+    /* Level of the end-of-merge node, one level above the root. */
+    MERGE_END = 0,
+
+    /* Level of the root node in merge tree. This is 1 as opposed
+       to 0 to avoid division by zero. */
+    MERGE_ROOT = 1
+  };
+
 /* The representation of the decimal point in the current locale.  */
 static int decimal_point;
 
@@ -2792,23 +2802,22 @@ queue_insert (struct merge_node_queue *const restrict queue,
 static inline struct merge_node *
 queue_pop (struct merge_node_queue *const restrict queue)
 {
-  struct merge_node *ret = NULL;
+  struct merge_node *node = NULL;
 
-  while (!ret)
+  while (!node)
     {
       pthread_mutex_lock (&queue->mutex);
       if (queue->priority_queue->count)
-        ret = (struct merge_node *) heap_remove_top (queue->priority_queue);
+        node = (struct merge_node *) heap_remove_top (queue->priority_queue);
       else
         /*  Go into condtional wait if no NODE is immediately
             available. */
         pthread_cond_wait (&queue->cond, &queue->mutex);
-
       pthread_mutex_unlock (&queue->mutex);
     }
-  lock_node (ret);
-  ret->queued = false;
-  return ret;
+  lock_node (node);
+  node->queued = false;
+  return node;
 }
 
 /* If UNQIUE is set, checks to make sure line isn't a duplicate before
@@ -2842,8 +2851,9 @@ merge_node (struct merge_node *const restrict node, FILE *tfp,
   size_t merged_lo;
   size_t merged_hi;
 
-  if (node->level > 1)
+  if (node->level > MERGE_ROOT)
     {
+      /* Merge to destination buffer. */
       while (node->lo != node->end_lo && node->hi != node->end_hi && to_merge--)
         if (compare (node->lo - 1, node->hi - 1) <= 0)
           *--node->dest = *--node->lo;
@@ -2862,6 +2872,7 @@ merge_node (struct merge_node *const restrict node, FILE *tfp,
     }
   else
     {
+      /* Merge directly to output. */
       while (node->lo != node->end_lo && node->hi != node->end_hi && to_merge--)
         if (compare (node->lo - 1, node->hi - 1) <= 0)
           write_unique (--node->lo, tfp, temp_output);
@@ -2879,6 +2890,8 @@ merge_node (struct merge_node *const restrict node, FILE *tfp,
           write_unique (--node->hi, tfp, temp_output);
       node->dest -= lo_orig - node->lo + hi_orig - node->hi;
     }
+
+  /* Update merge NODE. */
   merged_lo = lo_orig - node->lo;
   merged_hi = hi_orig - node->hi;
   node->nlo -= merged_lo;
@@ -2909,7 +2922,7 @@ static inline void
 update_parent (struct merge_node *const restrict node, size_t merged,
                struct merge_node_queue *const restrict queue)
 {
-  if (node->level > 1)
+  if (node->level > MERGE_ROOT)
     {
       lock_node (node->parent);
       *node->parent_end -= merged;
@@ -2933,7 +2946,7 @@ merge_loop (struct merge_node_queue *const restrict queue,
       struct merge_node *node = queue_pop (queue);
 
       /* Termination NODE. */
-      if (node->level == 0)
+      if (node->level == MERGE_END)
         {
           unlock_node (node);
           queue_insert (queue, node);
@@ -3013,68 +3026,55 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
            struct merge_node_queue *const restrict merge_queue,
            FILE *tfp, const char *temp_output)
 {
-  if (nlines == 2)
+  /* Create merge tree NODE. */
+  size_t nlo = nlines / 2;
+  size_t nhi = nlines - nlo;
+  struct line *lo = dest - parent->total_lines;
+  struct line *hi = lo - nlo;
+  pthread_spinlock_t lock;
+  pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
+  struct merge_node node =
+    {lo, hi, lo, hi, dest, parent_end, nlo, nhi, parent->total_lines,
+     parent->level + 1, parent, false, &lock};
+
+  /* Calculate thread arguments. */
+  unsigned long int child_subthreads = nthreads / 2;
+  unsigned long int my_subthreads = nthreads - child_subthreads;
+  pthread_t thread;
+  struct thread_args args =
+    {lines - nlo, hi, child_subthreads, nhi, &node, &node.end_hi,
+     merge_queue, tfp, temp_output};
+
+  if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
+      && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
     {
-      int swap = (0 < compare (&lines[-1], &lines[-2]));
-      dest[-1] = lines[-1 - swap];
-      dest[-2] = lines[-2 + swap];
+      /* Guarantee that nlo and nhi are each at least 2.  */
+      verify (4 <= SUBTHREAD_LINES_HEURISTIC);
 
-      /* Create NODE with mininal members needed by update_parent. */
-      struct merge_node node =
-        {lines, lines - 1,lines - 1, lines - 2, dest, parent_end, 0, 0, 0,
-         parent->level + 1, parent, false, NULL};
-
-      update_parent (&node, nlines, merge_queue);
-      merge_loop (merge_queue, tfp, temp_output);
+      sortlines (lines, lo, my_subthreads, nlo, &node, &node.end_lo,
+                 merge_queue, tfp, temp_output);
+      pthread_join (thread, NULL);
     }
   else
     {
-      /* Create merge tree NODE. */
-      size_t nlo = nlines / 2;
-      size_t nhi = nlines - nlo;
-      struct line *lo = dest - parent->total_lines;
-      struct line *hi = lo - nlo;
-      pthread_spinlock_t lock;
-      pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
-      struct merge_node node =
-        {lo, hi, lo, hi, dest, parent_end, nlo, nhi, parent->total_lines,
-         parent->level + 1, parent, false, &lock};
+      /* Nthreads = 1, this is a leaf NODE, or pthread_create failed.
+         Sort with 1 thread. */
+      size_t nlines = parent->total_lines;
+      struct line *temp_lo = lines - nlines;
+      struct line *temp_hi = temp_lo - nlo / 2;
+      if (1 < nhi)
+        sequential_sort (lines - nlo, nhi, temp_hi, false);
+      if (1 < nlo)
+        sequential_sort (lines, nlo, lines - nlines, false);
 
-      /* Calculate thread arguments. */
-      unsigned long int child_subthreads = nthreads / 2;
-      unsigned long int my_subthreads = nthreads - child_subthreads;
-      pthread_t thread;
-      struct thread_args args = {lines - nlo, hi, child_subthreads, nhi,
-                                 &node, &node.end_hi, merge_queue,
-                                 tfp, temp_output};
+      /* Update merge NODE. No need to lock yet. */
+      node.lo = lines;
+      node.hi = lines - nlo;
+      node.end_lo = lines - nlo;
+      node.end_hi = lines - nlo - nhi;
 
-      if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
-          && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
-        {
-          /* Guarantee that nlo and nhi are each at least 2.  */
-          verify (4 <= SUBTHREAD_LINES_HEURISTIC);
-
-          sortlines (lines, lo, my_subthreads, nlo, &node, &node.end_lo,
-                     merge_queue, tfp, temp_output);
-          pthread_join (thread, NULL);
-        }
-      else
-        {
-          /* Nthreads = 1, this is a leaf NODE, or pthread_create failed.
-             Sort with 1 thread. */
-          sequential_sort (lines - nlo, nhi, hi, true);
-          if (1 < nlo)
-            sequential_sort (lines, nlo, lo, true);
-          else
-            lo[-1] = lines[-1];
-
-          /* Update merge NODE. No need to lock yet. */
-          node.end_lo = lo - nlo;
-          node.end_hi = hi - nhi;
-
-          queue_insert (merge_queue, &node);
-          merge_loop (merge_queue, tfp, temp_output);
-        }
+      queue_insert (merge_queue, &node);
+      merge_loop (merge_queue, tfp, temp_output);
     }
 }
 
@@ -3297,17 +3297,20 @@ sort (char * const *files, size_t nfiles, char const *output_file,
       FILE *tfp;
 
       size_t bytes_per_line;
-      {
-        /* Get log P. */
-        unsigned long int tmp = 1;
-        size_t mult = 2;
-        while (tmp < nthreads)
-          {
-            tmp *= 2;
-            mult++;
-          }
-        bytes_per_line = (mult * sizeof (struct line));
-      }
+      if (nthreads > 1)
+        {
+          /* Get log P. */
+          unsigned long int tmp = 1;
+          size_t mult = 1;
+          while (tmp < nthreads)
+            {
+              tmp *= 2;
+              mult++;
+            }
+          bytes_per_line = (mult * sizeof (struct line));
+        }
+      else
+        bytes_per_line = sizeof (struct line) * 3 / 2;
 
       if (! buf.alloc)
         initbuf (&buf, bytes_per_line,
@@ -3356,7 +3359,7 @@ sort (char * const *files, size_t nfiles, char const *output_file,
               pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
               struct merge_node node =
                 {NULL, NULL, NULL, NULL, NULL, NULL, 0,
-                 0, buf.nlines, 0, NULL, false, &lock};
+                 0, buf.nlines, MERGE_END, NULL, false, &lock};
 
               sortlines (line, line, nthreads, buf.nlines, &node, NULL,
                          &merge_queue, tfp, temp_output);
