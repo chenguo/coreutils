@@ -3358,6 +3358,8 @@ sort (char * const *files, size_t nfiles, char const *output_file,
                          &merge_queue, tfp, temp_output);
               queue_destroy (&merge_queue);
             }
+          else
+            write_unique (line - 1, tfp, temp_output);
 
           xfclose (tfp, temp_output);
 
