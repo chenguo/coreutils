@@ -2613,41 +2613,38 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       for(i = 0; i < nthreads; ++i)
         {
           size_t numFilesToMerge = 2 + ((i == 0) ? oddthread : 0);
-          size_t mergefiles_set = 0;
           struct sortfile *thread_files = malloc(numFilesToMerge*sizeof(struct sortfile));
 	  int thread_ntemp=0;
 	  int thread_nfiles=0;
           // Assigns the files to be merged from the original TEMP files
-          while(nTemps_used < ntemps && mergefiles_set < numFilesToMerge)
+          while(nTemps_used < ntemps && thread_nfiles < numFilesToMerge)
             {
-              thread_files[mergefiles_set] = files[nTemps_used];
-              mergefiles_set++;
+              thread_files[thread_nfiles] = files[nTemps_used];
+              thread_nfiles++;
               nTemps_used++;
 	      thread_ntemp++;
-	fprintf(stderr, "set %d\n", (int)mergefiles_set);
+	fprintf(stderr, "set %d\n", (int)thread_nfiles);
             }
           // Assigns the files to be merged from intermediate TEMP files
-          while(nNewTemps_used < nNewTemps && mergefiles_set < numFilesToMerge)
+          while(nNewTemps_used < nNewTemps && thread_nfiles < numFilesToMerge)
             {
-              thread_files[mergefiles_set] = thread_output_file[nNewTemps_used];
-              mergefiles_set++;
+              thread_files[thread_nfiles] = thread_output_file[nNewTemps_used];
               nNewTemps_used++;
-	      fprintf(stderr, "newset %d\n", (int)mergefiles_set);
+	      fprintf(stderr, "newset %d\n", (int)thread_nfiles);
               thread_nfiles++;
             }
           // Assigns the files to be merged from input files (this only happens when -m is used)
-          while(nFiles_used < nfiles && mergefiles_set < numFilesToMerge)
+          while(nFiles_used < nfiles && thread_nfiles < numFilesToMerge)
             {
-              thread_files[mergefiles_set] = files[ntemps+nFiles_used];
-              mergefiles_set++;
+              thread_files[thread_nfiles] = files[ntemps+nFiles_used];
+              thread_nfiles++;
               nFiles_used++;
-	      thread_ntemp++;
             }
 fprintf(stderr, "Thread #: %d \n", (int)i);
 
           //merge files have been set
           //Validate mi vs i
-          open_input_files(thread_files, mergefiles_set, &(thread_fps[i])); 
+          open_input_files(thread_files, thread_nfiles, &(thread_fps[i])); 
           //struct merge_args newArg = {mergefiles, (nTemps_used + nNewTemps_used), nFiles_used, thread_ofp[i], thread_output_file[i].name, thread_fps[i]};
           //args[i] = newArg;
  	  args[i].files = thread_files;
@@ -2661,7 +2658,7 @@ fprintf(stderr, "Thread #: %d \n", (int)i);
 	  xpthread_error(ret_val, "error while creating a thread");
           mi++;
 
-          free(thread_files);
+    //      free(thread_files);
         }
 
       //Wait for all the threads to finish merging before starting the next level of merge
@@ -2680,10 +2677,10 @@ fprintf(stderr, "POOPEY2\n");
       oddthread = nthreads%2;
       nthreads /= 2;
     }
- free(thread_fps);
-  free(thread_output_file);
-  free(thread_ofp);
-  free(args);
+  //free(thread_fps);
+  //free(thread_output_file);
+  //free(thread_ofp);
+  //free(args);
 }
 
 
