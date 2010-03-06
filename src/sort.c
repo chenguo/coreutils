@@ -2583,11 +2583,11 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       char *temp = create_temp (&thread_ofp[i], &thread_output_file[i].pid);
       fprintf(stderr, "temp%s\n", temp);
       if (temp == NULL)
-	{
-	nthreads=i;
-	fprintf(stderr, "nthreads out\n");
-	break;
-	}
+	    {
+      	nthreads=i;
+      	fprintf(stderr, "nthreads out\n");
+      	break;
+	    }
       //struct sortfile tfile;
       //tfile.name = temp;
       //tfile.pid = pid;
@@ -2596,13 +2596,14 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       //thread_ofp[i] = tfp;
 	
     }
-  if ( nthreads > nmerges)
-	nthreads=nmerges;
-  //The last temp file will be the desitred output file:
-  struct sortfile tfile_output;
-  tfile_output.name = output_file;
-  thread_output_file[i] = tfile_output;
+  //The last temp file will be the desired output file:
+ // struct sortfile tfile_output;
+  //tfile_output.name = output_file;
+  thread_output_file[i].name = output_file;
   thread_ofp[i] = ofp;
+  nthreads++;
+  if ( nthreads > nmerges)
+	  nthreads=nmerges;
   //Main merge thread spawning loop. Each iteration is one level of 2-way merges.
   while (nthreads >= 1)
    {
@@ -2680,7 +2681,6 @@ fprintf(stderr, "POOPEY2\n");
   //free(thread_fps);
   //free(thread_output_file);
   //free(thread_ofp);
-  //free(args);
 }
 
 
