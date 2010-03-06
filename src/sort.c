@@ -2574,7 +2574,6 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   size_t nTemps_used = 0;
   size_t nFiles_used = 0;
   size_t nNewTemps_used = 0;
-
   size_t mi = 0; //Merge index to manage temporary output files
   size_t i;
   //Set up the new temp files for each merge thread
