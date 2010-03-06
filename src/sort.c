@@ -2397,7 +2397,7 @@ mergefps_orig (struct sortfile *files, size_t ntemps, size_t nfiles,
           if (i < ntemps)
             {
               ntemps--;
-//              zaptemp (files[i].name);
+              zaptemp (files[i].name);
 
             }
           free (buffer[i].buf);
@@ -2614,23 +2614,24 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
         {
           size_t numFilesToMerge = 2 + ((i == 0) ? oddthread : 0);
           struct sortfile *thread_files = malloc(numFilesToMerge*sizeof(struct sortfile));
-	  int thread_ntemp=0;
-	  int thread_nfiles=0;
+          int thread_ntemp=0;
+          int thread_nfiles=0;
+
           // Assigns the files to be merged from the original TEMP files
           while(nTemps_used < ntemps && thread_nfiles < numFilesToMerge)
             {
               thread_files[thread_nfiles] = files[nTemps_used];
               thread_nfiles++;
               nTemps_used++;
-	      thread_ntemp++;
-	fprintf(stderr, "set %d\n", (int)thread_nfiles);
+              thread_ntemp++;
+              fprintf(stderr, "set %d\n", (int)thread_nfiles);
             }
           // Assigns the files to be merged from intermediate TEMP files
           while(nNewTemps_used < nNewTemps && thread_nfiles < numFilesToMerge)
             {
               thread_files[thread_nfiles] = thread_output_file[nNewTemps_used];
               nNewTemps_used++;
-	      fprintf(stderr, "newset %d\n", (int)thread_nfiles);
+              fprintf(stderr, "newset %d\n", (int)thread_nfiles);
               thread_nfiles++;
             }
           // Assigns the files to be merged from input files (this only happens when -m is used)
@@ -2640,38 +2641,40 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               thread_nfiles++;
               nFiles_used++;
             }
-fprintf(stderr, "Thread #: %d \n", (int)i);
+
+          fprintf(stderr, "Thread #: %d \n", (int)i);
 
           //merge files have been set
           //Validate mi vs i
           open_input_files(thread_files, thread_nfiles, &(thread_fps[i])); 
-          //struct merge_args newArg = {mergefiles, (nTemps_used + nNewTemps_used), nFiles_used, thread_ofp[i], thread_output_file[i].name, thread_fps[i]};
-          //args[i] = newArg;
- 	  args[i].files = thread_files;
-	  args[i].ntemps = thread_ntemp;
-  	  args[i].nfiles = thread_nfiles;
-	  args[i].ofp = thread_ofp[i];
-	  args[i].output_file = thread_output_file[i].name;
-	  args[i].fps = thread_fps[i];
-	  fprintf(stderr,"filename %s\n", thread_output_file[i].name);
+
+          args[i].files = thread_files;
+          args[i].ntemps = thread_ntemp;
+          args[i].nfiles = thread_nfiles;
+          args[i].ofp = thread_ofp[i];
+          args[i].output_file = thread_output_file[i].name;
+          args[i].fps = thread_fps[i];
+
+          fprintf(stderr,"filename %s\n", thread_output_file[i].name);
+
           int ret_val=pthread_create(&pthreads[i], NULL, mergefps_thread, (void*)&args[i]);
-	  xpthread_error(ret_val, "error while creating a thread");
+          xpthread_error(ret_val, "error while creating a thread");
           mi++;
 
-    //      free(thread_files);
+          free(thread_files);
         }
 
       //Wait for all the threads to finish merging before starting the next level of merge
 
-fprintf(stderr, "All threads finished level\n");
- for (i = 0; i < nthreads; i++)
+      fprintf(stderr, "All threads finished level\n");
+      for (i = 0; i < nthreads; i++)
         {
-	 fprintf(stderr, "joining %d\n", (int)i);
-         int ret_val=pthread_join(pthreads[i], NULL);
-	 fprintf(stderr, "joined %d\n", (int)i);
-	 xpthread_error(ret_val, "error while joining a thread");
+          fprintf(stderr, "joining %d\n", (int)i);
+          int ret_val=pthread_join(pthreads[i], NULL);
+          fprintf(stderr, "joined %d\n", (int)i);
+          xpthread_error(ret_val, "error while joining a thread");
         }
-fprintf(stderr, "POOPEY2\n");
+      fprintf(stderr, "POOPEY2\n");
 
       free(pthreads);
       oddthread = nthreads%2;
