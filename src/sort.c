@@ -46,7 +46,7 @@
 #include "stdio--.h"
 #include "stdlib--.h"
 #include "strnumcmp.h"
-#include "xmemcoll_nul.h"
+#include "xmemcoll.h"
 #include "xmemxfrm.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
@@ -1224,7 +1224,6 @@ open_temp (const char *name, pid_t pid)
 static void
 write_bytes (char *buf, size_t n_bytes, FILE *fp, const char *output_file)
 {
-  *(buf + n_bytes - 1) = eolchar;
   if (fwrite (buf, 1, n_bytes, fp) != n_bytes)
     die (_("write failed"), output_file);
 }
