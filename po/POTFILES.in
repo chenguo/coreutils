@@ -29,6 +29,7 @@ lib/version-etc.c
 lib/xalloc-die.c
 lib/xfreopen.c
 lib/xmemcoll.c
+lib/xmemcoll_nul.c
 lib/xmemxfrm.c
 lib/xprintf.c
 lib/xstrtol-error.c
