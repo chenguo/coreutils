@@ -46,7 +46,7 @@
 #include "stdio--.h"
 #include "stdlib--.h"
 #include "strnumcmp.h"
-#include "xmemcoll_nul.h"
+#include "xmemcoll.h"
 #include "xmemxfrm.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
@@ -1165,7 +1165,6 @@ open_temp (const char *name, pid_t pid)
 static void
 write_bytes (char *buf, size_t n_bytes, FILE *fp, const char *output_file)
 {
-  *(buf + n_bytes - 1) = eolchar;
   if (fwrite (buf, 1, n_bytes, fp) != n_bytes)
     die (_("write failed"), output_file);
 }
@@ -1748,8 +1747,6 @@ fillbuf (struct buffer *buf, FILE *fp, char const *file)
           /* Find and record each line in the just-read input.  */
           while ((p = memchr (ptr, eol, ptrlim - ptr)))
             {
-              /* Change newline char to NUL for memcoll_null. */
-              *p = '\0';
               ptr = p + 1;
               line--;
               line->text = line_start;
@@ -2213,7 +2210,7 @@ keycompare (const struct line *a, const struct line *b)
                     }
                 }
 
-              diff = xmemcoll_nul (copy_a, new_len_a, copy_b, new_len_b);
+              diff = xmemcoll (copy_a, new_len_a, copy_b, new_len_b);
 
               if (sizeof buf < size)
                 free (copy_a);
@@ -2223,7 +2220,7 @@ keycompare (const struct line *a, const struct line *b)
           else if (lenb == 0)
             goto greater;
           else
-            diff = xmemcoll_nul (texta, lena, textb, lenb);
+            diff = xmemcoll (texta, lena, textb, lenb);
         }
       else if (ignore)
         {
@@ -2344,7 +2341,7 @@ compare (const struct line *a, const struct line *b)
   else if (blen == 0)
     diff = 1;
   else if (hard_LC_COLLATE)
-    diff = xmemcoll_nul (a->text, alen, b->text, blen);
+    diff = xmemcoll (a->text, alen, b->text, blen);
   else if (! (diff = memcmp (a->text, b->text, MIN (alen, blen))))
     diff = alen < blen ? -1 : alen != blen;
 
