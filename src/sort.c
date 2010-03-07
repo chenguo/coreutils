@@ -2560,11 +2560,30 @@ static void
 }
 
 static void
+debug_print_args(struct sortfile *files, size_t ntemps, size_t nfiles,
+          FILE *ofp, char const *output_file, FILE **fps)
+{
+  size_t i = 0;
+  fprintf(stderr, "DEBUG:\n");
+  fprintf(stderr, "\tFiles:\n");
+  for (i = 0; i < nfiles; ++i)
+    {
+      fprintf(stderr, "\t\tFilename: %s\n", files[i].name);
+      fprintf(stderr, "\t\tpid: %s\n", files[i].pid);
+    }
+    fprintf(stderr, "\tntemps: %d\n", ntemps);
+    fprintf(stderr, "\tntemps: %d\n", nfiles);
+    fprintf(stderr, "\tntemps: %d\n", ofp);
+    fprintf(stderr, "\tntemps: %s\n", output_file);
+    fprintf(stderr, "\tntemps: %d\n", fps);
+}
+
+static void
 mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           FILE *ofp, char const *output_file, FILE **fps)
 {
-  size_t nthreads = nfiles/2;
   size_t oddthread = nfiles%2;
+  size_t nthreads = nfiles/2;
   size_t nmerges = (int)ceil(log(nfiles)/log(2));
   size_t nNewTemps = nmerges;
   
@@ -2574,6 +2593,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   FILE **thread_ofp = malloc(nfiles*sizeof(FILE*));
   struct merge_args *args = malloc(nthreads*sizeof(struct merge_args));
   fprintf(stderr, "\n\n** CALL TO MERGEFPS ** %d\n", (int)nthreads);
+  debug_print_args(files, ntemps, nfiles, ofp, output_file, fps);
   fprintf(stderr, "numthreads %d\n", (int)nthreads);
   fprintf(stderr, "nummerges %d\n", (int)nmerges);
   size_t nTemps_used = 0;
@@ -2583,7 +2603,14 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   size_t i;
   size_t j;
   
-  //Main merge thread spawning loop. Each iteration is one level of 2-way merges.
+
+  //Dont bother multithreading a merge that requires only one thread
+  if(nfiles <= 3)
+  {
+    mergefps_orig(files, ntemps, nfiles, ofp, output_file, fps);
+    return;
+  }
+  //Main merge thread spawning loop. Each iteration is one level of 2-way merges
   while (nthreads >= 1)
    {
       fprintf(stderr, "NEW LOOP: nthreads =%d\n", (int)nthreads);
@@ -2593,6 +2620,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       for(i = 0; i < nthreads; ++i)
         {
           size_t numFilesToMerge = 2 + ((i == 0) ? oddthread : 0);
+          if(numFilesToMerge > nfiles)
+            numFilesToMerge = nfiles;
           struct sortfile *thread_files = malloc(numFilesToMerge*sizeof(struct sortfile));
           int thread_ntemp=0;
           int thread_nfiles=0;
