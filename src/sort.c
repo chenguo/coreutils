@@ -32,6 +32,7 @@
 #include "filevercmp.h"
 #include "hard-locale.h"
 #include "hash.h"
+#include "ignore-value.h"
 #include "md5.h"
 #include "nproc.h"
 #include "physmem.h"
@@ -209,7 +210,7 @@ struct keyfield
                                    Handle numbers in exponential notation. */
   bool human_numeric;		/* Flag for sorting by human readable
                                    units with either SI xor IEC prefixes. */
-  int si_present;		/* Flag for checking for mixed SI and IEC. */
+  int iec_present;		/* Flag for checking for mixed SI and IEC. */
   bool month;			/* Flag for comparison by month name. */
   bool reverse;			/* Reverse the sense of comparison. */
   bool version;			/* sort by version number */
@@ -832,6 +833,61 @@ create_temp_file (int *pfd, bool survive_fd_exhaustion)
   return node;
 }
 
+/* Predeclare an access pattern for input files.
+   Ignore any errors -- this is only advisory.
+
+   There are a few hints we could possibly provide,
+   and after careful testing it was decided that
+   specifying POSIX_FADV_SEQUENTIAL was not detrimental
+   to any cases.  On Linux 2.6.31, this option doubles
+   the size of read ahead performed and thus was seen to
+   benefit these cases:
+     Merging
+     Sorting with a smaller internal buffer
+     Reading from faster flash devices
+
+   In _addition_ one could also specify other hints...
+
+   POSIX_FADV_WILLNEED was tested, but Linux 2.6.31
+   at least uses that to _synchronously_ prepopulate the cache
+   with the specified range.  While sort does need to
+   read all of its input before outputting, a synchronous
+   read of the whole file up front precludes any processing
+   that sort could do in parallel with the system doing
+   read ahead of the data. This was seen to have negative effects
+   in a couple of cases:
+     Merging
+     Sorting with a smaller internal buffer
+   Note this option was seen to shorten the runtime for sort
+   on a multicore system with lots of RAM and other processes
+   competing for CPU.  It could be argued that more explicit
+   scheduling hints with `nice` et. al. are more appropriate
+   for this situation.
+
+   POSIX_FADV_NOREUSE is a possibility as it could lower
+   the priority of input data in the cache as sort will
+   only need to process it once.  However its functionality
+   has changed over Linux kernel versions and as of 2.6.31
+   it does nothing and thus we can't depend on what it might
+   do in future.
+
+   POSIX_FADV_DONTNEED is not appropriate for user specified
+   input files, but for temp files we do want to drop the
+   cache immediately after processing.  This is done implicitly
+   however when the files are unlinked.  */
+
+static void
+fadvise_input (FILE *fp)
+{
+#if HAVE_POSIX_FADVISE
+  if (fp)
+    {
+      int fd = fileno (fp);
+      ignore_value (posix_fadvise (fd, 0, 0, POSIX_FADV_SEQUENTIAL));
+    }
+#endif
+}
+
 /* Return a stream for FILE, opened with mode HOW.  A null FILE means
    standard output; HOW should be "w".  When opening for input, "-"
    means standard input.  To avoid confusion, do not return file
@@ -843,10 +899,18 @@ stream_open (const char *file, const char *how)
 {
   if (!file)
     return stdout;
-  if (STREQ (file, "-") && *how == 'r')
+  if (*how == 'r')
     {
-      have_read_stdin = true;
-      return stdin;
+      FILE *fp;
+      if (STREQ (file, "-"))
+        {
+          have_read_stdin = true;
+          fp = stdin;
+        }
+      else
+        fp = fopen (file, how);
+      fadvise_input (fp);
+      return fp;
     }
   return fopen (file, how);
 }
@@ -1750,10 +1814,10 @@ numcompare (const char *a, const char *b)
 static void
 check_mixed_SI_IEC (char prefix, struct keyfield *key)
 {
-  int si_present = prefix == 'i';
-  if (key->si_present != -1 && si_present != key->si_present)
+  int iec_present = prefix == 'i';
+  if (key->iec_present != -1 && iec_present != key->iec_present)
     error (SORT_FAILURE, 0, _("both SI and IEC prefixes present on units"));
-  key->si_present = si_present;
+  key->iec_present = iec_present;
 }
 
 /* Return an integer which represents the order of magnitude of
@@ -3445,7 +3509,7 @@ key_init (struct keyfield *key)
 {
   memset (key, 0, sizeof *key);
   key->eword = SIZE_MAX;
-  key->si_present = -1;
+  key->iec_present = -1;
   return key;
 }
 
@@ -3563,7 +3627,7 @@ main (int argc, char **argv)
   gkey.ignore = NULL;
   gkey.translate = NULL;
   gkey.numeric = gkey.general_numeric = gkey.human_numeric = false;
-  gkey.si_present = -1;
+  gkey.iec_present = -1;
   gkey.random = gkey.version = false;
   gkey.month = gkey.reverse = false;
   gkey.skipsblanks = gkey.skipeblanks = false;
