@@ -1077,6 +1077,7 @@ add_temp_dir (char const *dir)
 static void
 zaptemp (const char *name)
 {
+  return;
   struct tempnode *volatile *pnode;
   struct tempnode *node;
   struct tempnode *next;
