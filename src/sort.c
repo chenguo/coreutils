@@ -46,7 +46,6 @@
 #include "xmemxfrm.h"
 #include "xnanosleep.h"
 #include "xstrtol.h"
-#include "math.h"
 #include "pthread.h"
 #define xpthread_error(rv, msg) { \
    if (rv) \
