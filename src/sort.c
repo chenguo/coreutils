@@ -51,6 +51,7 @@
 
 #if HAVE_LIBPTHREAD
 # include <pthread.h>
+# define xpthread_mutex_t pthread_mutex_t
 # define xpthread_error(rv, msg) { \
     if (rv) \
       { \
@@ -71,6 +72,7 @@
     xpthread_error (rv, "pthread_mutex_unlock"); \
 }
 #else
+# define xpthread_mutex_t int
 # define xpthread_error(rv)
 # define xpthread_mutex_init(mutex, attr)
 # define xpthread_mutex_lock(mutex)
@@ -738,7 +740,7 @@ wait_proc (pid_t pid)
    This doesn't block waiting for any of them, it only reaps those
    that are already dead.  */
 
-pthread_mutex_t reap_lock;
+xpthread_mutex_t reap_lock;
 
 static void
 reap_some (void)
@@ -1032,7 +1034,7 @@ pipe_fork (int pipefds[2], size_t tries)
    fails, return NULL if the failure is due to file descriptor
    exhaustion and SURVIVE_FD_EXHAUSTION; otherwise, die.  */
 
-pthread_mutex_t temp_file_lock;
+xpthread_mutex_t temp_file_lock;
 
 static char *
 maybe_create_temp (FILE **pfp, pid_t *ppid, bool survive_fd_exhaustion)
@@ -1987,7 +1989,7 @@ getmonth (char const *month, size_t len)
 static struct randread_source *randread_source;
 
 /* A mutex to lock randread_source function */
-pthread_mutex_t randread_lock;
+xpthread_mutex_t randread_lock;
 
 /* Return the Ith randomly-generated state.  The caller must invoke
    random_state (H) for all H less than I before invoking random_state
@@ -3098,7 +3100,7 @@ struct sort_multidisk_thread_args
   char ***dev_files;
   size_t ndevs;
   size_t *nfiles;
-  pthread_mutex_t mutex;
+  xpthread_mutex_t mutex;
 };
 
 /* Tries to sort files from one device at a time. Multiple instances can run
@@ -3229,6 +3231,11 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
 {
 #if HAVE_LIBPTHREAD != 1
   do_sort (files, nfiles, output_file, true);
+
+  // Quiet unused function warnings when HAVE_LIBPTHREAD is not defined
+  sort_multidisk_thread (NULL);
+  group_files_by_device (NULL, 0, NULL, NULL);
+  xpthread_error (0);
 #else
   // No point in spawning a new thread if just one input file
   if (nfiles <= 1)
