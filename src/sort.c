@@ -2626,9 +2626,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 
           // Create this thread's TEMP output file
           char *temp = create_temp (&thread_ofp[ti], &thread_output_file[ti].pid);
-          if(nthreads > 1)
-            {
-              if (temp == NULL)
+           if (temp == NULL)
                 {
                   nthreads=i;
                   //fprintf(stderr, "*** create_temp resulted in NULL!\n");
@@ -2637,7 +2635,6 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               //fprintf(stderr, "temp%s\n", temp);
               thread_output_file[ti].name = temp;
               nNewTemps++;
-            }
 
           // Assigns the files to be merged from the original TEMP files
           while(nTemps_used < ntemps && thread_nfiles < numFilesToMerge)
@@ -2648,13 +2645,6 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               thread_ntemp++;
               //fprintf(stderr, "set %d\n", (int)thread_nfiles);
             }
-          // Assigns the files to be merged from input files (this only happens when -m is used)
-          while(nFiles_used < nfiles && thread_nfiles < numFilesToMerge)
-            {
-              thread_files[thread_nfiles] = files[ntemps+nFiles_used];
-              thread_nfiles++;
-              nFiles_used++;
-            }
           // Assigns the files to be merged from intermediate TEMP files
           while(nNewTemps_used < nNewTemps && thread_nfiles < numFilesToMerge)
             {
@@ -2662,6 +2652,13 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               nNewTemps_used++;
               //fprintf(stderr, "newset %d\n", (int)thread_nfiles);
               thread_nfiles++;
+            }
+          // Assigns the files to be merged from input files (this only happens when -m is used)
+          while(nFiles_used < nfiles && thread_nfiles < numFilesToMerge)
+            {
+              thread_files[thread_nfiles] = files[ntemps+nFiles_used];
+              thread_nfiles++;
+              nFiles_used++;
             }
 
           //fprintf(stderr, "Thread #: %d \n", (int)i);
