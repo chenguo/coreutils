@@ -3263,6 +3263,11 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           pthread_t *threads = xnmalloc (nthreads_to_use, sizeof *threads);
           unsigned long int tid = 0;
           int ret_val;
+          size_t global_sort_size = sort_size;
+
+          // Reduce global sort size by a factor of nthreads_to_use so that the
+          // global memory usage does not exceed the bounds
+          sort_size /= nthreads_to_use;
 
           struct sort_multidisk_thread_args args = {
             .dev_files = dev_files,
@@ -3293,6 +3298,9 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
             }
 
           free (threads);
+
+          // Return the global sort size to its original value
+          sort_size = global_sort_size;
 
           // Free all the memory allocated for device information
           free (dev_files);
