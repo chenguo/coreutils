@@ -2738,7 +2738,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       {
         free(pthread_arrays[i]);
       }
-
+  free(pthread_arrays);
   // free(thread_fps);
   // free(thread_output_file);
   // free(thread_ofp);
