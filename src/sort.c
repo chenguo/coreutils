@@ -53,8 +53,12 @@
 
 #if HAVE_LIBPTHREAD
 # include <pthread.h>
+
+/* pthread types */
 # define xpthread_mutex_t pthread_mutex_t
 # define xpthread_t pthread_t
+
+/* print somewhat helpful pthread error message before exiting */
 # define xpthread_error(rv, msg) { \
     if (rv) \
       { \
@@ -62,6 +66,8 @@
         exit (SORT_FAILURE); \
       } \
 }
+
+/* pthread mutex wrappers */
 # define xpthread_mutex_init(mutex, attr) { \
     int rv = pthread_mutex_init (mutex, attr); \
     xpthread_error (rv, "pthread_mutex_init"); \
@@ -78,6 +84,8 @@
     int rv = pthread_mutex_unlock (mutex); \
     xpthread_error (rv, "pthread_mutex_unlock"); \
 }
+
+/* pthread thread wrappers */
 # define xpthread_create(thread, attr, start_routine, arg) { \
     int rv = pthread_create (thread, attr, start_routine, arg); \
     xpthread_error (rv, "pthread_create"); \
@@ -87,6 +95,7 @@
     xpthread_error (rv, "pthread_join"); \
 }
 #else
+/* Dummy defines for when pthread.h isn't available */
 # define xpthread_mutex_t char
 # define xpthread_t char
 # define xpthread_error(a)
@@ -279,7 +288,7 @@ struct merge_node
   size_t level;                 /* Level in merge tree. */
   struct merge_node *parent;    /* Parent node. */
   bool queued;                  /* Node is already in heap. */
-  pthread_spinlock_t *lock;     /* Lock for node operations. */
+  pthread_spinlock_t lock;      /* Lock for node operations. */
 };
 
 /* Priority queue of merge nodes. */
@@ -2799,8 +2808,8 @@ mergelines (struct line *restrict t, size_t nlines,
    D. A. Bell, Comp J. 1 (1958), 75.  */
 
 static void
-sequential_sort (struct line *restrict lines, size_t nlines,
-                 struct line *restrict temp, bool to_temp)
+sequential_sortlines (struct line *restrict lines, size_t nlines,
+                      struct line *restrict temp, bool to_temp)
 {
   if (nlines == 2)
     {
@@ -2827,9 +2836,9 @@ sequential_sort (struct line *restrict lines, size_t nlines,
       struct line *lo = lines;
       struct line *hi = lines - nlo;
 
-      sequential_sort (hi, nhi, temp - (to_temp ? nlo : 0), to_temp);
+      sequential_sortlines (hi, nhi, temp - (to_temp ? nlo : 0), to_temp);
       if (1 < nlo)
-        sequential_sort (lo, nlo, temp, !to_temp);
+        sequential_sortlines (lo, nlo, temp, !to_temp);
       else if (!to_temp)
         temp[-1] = lo[-1];
 
@@ -2868,7 +2877,7 @@ compare_nodes (const void *a, const void *b)
 static inline void
 lock_node (struct merge_node *const restrict node)
 {
-  pthread_spin_lock (node->lock);
+  pthread_spin_lock (&node->lock);
 }
 
 /* Unlock a merge tree NODE. */
@@ -2876,7 +2885,7 @@ lock_node (struct merge_node *const restrict node)
 static inline void
 unlock_node (struct merge_node *const restrict node)
 {
-  pthread_spin_unlock (node->lock);
+  pthread_spin_unlock (&node->lock);
 }
 
 /* Destroy merge QUEUE. */
@@ -2944,17 +2953,17 @@ queue_pop (struct merge_node_queue *const restrict queue)
    thus is only appropriate for internal sort. */
 
 static inline void
-write_unique (struct line *const restrict write, FILE *tfp,
+write_unique (struct line *const restrict data, FILE *tfp,
               const char *temp_output)
 {
   static struct line *saved = NULL;
 
   if (!unique)
-    write_bytes (write->text, write->length, tfp, temp_output);
-  else if (!saved || compare (write, saved))
+    write_bytes (data->text, data->length, tfp, temp_output);
+  else if (!saved || compare (data, saved))
     {
-      saved = write;
-      write_bytes (write->text, write->length, tfp, temp_output);
+      saved = data;
+      write_bytes (data->text, data->length, tfp, temp_output);
     }
 }
 
@@ -3022,7 +3031,7 @@ merge_node (struct merge_node *const restrict node, const size_t total_lines,
 
 /* Insert NODE into QUEUE if it passes insertion checks. */
 
-static inline bool
+static inline void
 check_insert (struct merge_node *node,
               struct merge_node_queue *const restrict queue)
 {
@@ -3085,38 +3094,118 @@ merge_loop (struct merge_node_queue *const restrict queue,
     }
 }
 
+/***************************************************************
+  Queue taken from http://github.com/jdegges/image-analyzer/ */
+#include "queue.h"
+/***************************************************************/
 
-static void sortlines (struct line *restrict, struct line *restrict,
-                       unsigned long int, const size_t,
-                       struct merge_node *const restrict, bool,
-                       struct merge_node_queue *const restrict,
-                       FILE *, const char *);
 
-/* Thread arguments for sortlines_thread. */
-
-struct thread_args
+struct sort_state
 {
-  struct line *lines;
-  struct line *dest;
-  unsigned long int nthreads;
-  const size_t total_lines;
-  struct merge_node *const restrict parent;
-  bool lo_child;
-  struct merge_node_queue *const restrict merge_queue;
+  ia_queue_t *thread_pool;
+  ia_queue_t *job_queue;
+
+  struct merge_node_queue *merge_queue;
+  size_t total_lines;
   FILE *tfp;
-  const char *output_temp;
+  char *temp_output;
+
+  bool is_active;
+  xpthread_mutex_t mutex;
 };
 
-/* Like sortlines, except with a signature acceptable to pthread_create.  */
+struct sort_unit
+{
+  struct line *restrict lines;
+  size_t nlines;
+  struct line *restrict temp;
+  bool to_temp;
+  struct merge_node *restrict node;
+};
+
+/* Initialize this sort's state. The primary purpose of maintaining an external
+   state is to allow others to dynamically add threads with
+   sortlines_add_threads() */
+
+static void
+sortlines_init (struct sort_state *state)
+{
+  state->thread_pool = ia_queue_open (10, 1);
+  state->job_queue = ia_queue_open (10, 1);
+
+  state->merge_queue = NULL;
+  state->total_lines = 0;
+  state->tfp = NULL;
+  state->temp_output = NULL;
+  state->is_active = true;
+
+  xpthread_mutex_init (&state->mutex, NULL);
+}
+
+/* Free up any state associated with this sort */
+
+static void
+sortlines_close (struct sort_state *state)
+{
+  ia_queue_close (state->thread_pool);
+  ia_queue_close (state->job_queue);
+
+  xpthread_mutex_destroy (&state->mutex);
+}
+
+/* Poll the sort state for sort jobs. Once all sort jobs are finished start the
+   merge loop. */
 
 static void *
 sortlines_thread (void *data)
 {
-  struct thread_args const *args = data;
-  sortlines (args->lines, args->dest, args->nthreads, args->total_lines,
-             args->parent, args->lo_child, args->merge_queue,
-             args->tfp, args->output_temp);
+  struct sort_state *state = data;
+  struct sort_unit *su = NULL;
+
+  while (!ia_queue_is_empty (state->job_queue))
+    {
+      su = ia_queue_pop (state->job_queue);
+
+      sequential_sortlines (su->lines, su->nlines, su->temp, su->to_temp);
+
+      if (NULL != su->node)
+        queue_insert (state->merge_queue, su->node);
+    }
+
+  merge_loop (state->merge_queue, state->total_lines, state->tfp, state->temp_output);
+
   return NULL;
+}
+
+/* Add NTHREADS to the thread pool. */
+static void
+sortlines_add_threads (struct sort_state *state, size_t nthreads)
+{
+  if (!state->is_active)
+    return;
+
+  while (nthreads--)
+    {
+      xpthread_t *thread = xmalloc (sizeof *thread);
+      xpthread_create (thread, NULL, sortlines_thread, state);
+      ia_queue_push (state->thread_pool, thread, 0);
+    }
+}
+
+/* Return once all threads have finished running */
+static void
+sortlines_join_threads (struct sort_state *state)
+{
+  xpthread_t *thread;
+  while (!ia_queue_is_empty (state->thread_pool))
+    {
+      thread = ia_queue_pop (state->thread_pool);
+
+      xpthread_join (*thread, NULL);
+      free (thread);
+    }
+
+  state->is_active = false;
 }
 
 /* There are three phases to the algorithm: node creation, sequential sort,
@@ -3142,9 +3231,10 @@ sortlines_thread (void *data)
 
 static void
 sortlines (struct line *restrict lines, struct line *restrict dest,
-           unsigned long int nthreads, const size_t total_lines,
-           struct merge_node *const restrict parent, bool lo_child,
-           struct merge_node_queue *const restrict merge_queue,
+           unsigned long int use_threads, unsigned long int max_threads,
+           const size_t total_lines, struct merge_node *const restrict parent,
+           bool lo_child, struct merge_node_queue *const restrict merge_queue,
+           struct sort_state *const restrict state,
            FILE *tfp, const char *temp_output)
 {
   /* Create merge tree NODE. */
@@ -3154,43 +3244,80 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
   struct line *lo = dest - total_lines;
   struct line *hi = lo - nlo;
   struct line **parent_end = (lo_child)? &parent->end_lo : &parent->end_hi;
-  pthread_spinlock_t lock;
-  pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
-  struct merge_node node = {lo, hi, lo, hi, parent_end, nlo, nhi,
-                            parent->level + 1, parent, false, &lock};
+  struct merge_node *node = xmalloc (sizeof *node);
+
+  node->lo = lo;
+  node->hi = hi;
+  node->end_lo = lo;
+  node->end_hi = hi;
+  node->dest = parent_end;
+  node->nlo = nlo;
+  node->nhi = nhi;
+  node->level = parent->level + 1;
+  node->parent = parent;
+  node->queued = false;
+  pthread_spin_init (&node->lock, PTHREAD_PROCESS_PRIVATE);
 
   /* Calculate thread arguments. */
-  unsigned long int lo_threads = nthreads / 2;
-  unsigned long int hi_threads = nthreads - lo_threads;
-  pthread_t thread;
-  struct thread_args args = {lines, lo, hi_threads, total_lines, &node,
-                             true, merge_queue, tfp, temp_output};
+  unsigned long int lo_threads = max_threads / 2;
+  unsigned long int hi_threads = max_threads - lo_threads;
 
-  if (nthreads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines
-      && pthread_create (&thread, NULL, sortlines_thread, &args) == 0)
+  if (max_threads > 1 && SUBTHREAD_LINES_HEURISTIC <= nlines)
     {
-      sortlines (lines - nlo, hi, hi_threads, total_lines, &node, false,
-                 merge_queue, tfp, temp_output);
-      pthread_join (thread, NULL);
+      sortlines (lines      , lo, use_threads, hi_threads, total_lines, node,
+                 true , NULL, state, NULL, NULL);
+      sortlines (lines - nlo, hi, use_threads, hi_threads, total_lines, node,
+                 false, NULL, state, NULL, NULL);
     }
   else
     {
-      /* Nthreads = 1, this is a leaf NODE, or pthread_create failed.
-         Sort with 1 thread. */
-      struct line *temp = lines - total_lines;
-      if (1 < nhi)
-        sequential_sort (lines - nlo, nhi, temp - nlo / 2, false);
-      if (1 < nlo)
-        sequential_sort (lines, nlo, temp, false);
+      struct ia_queue_t *sort_queue = state->job_queue;
 
       /* Update merge NODE. No need to lock yet. */
-      node.lo = lines;
-      node.hi = lines - nlo;
-      node.end_lo = lines - nlo;
-      node.end_hi = lines - nlo - nhi;
+      node->lo = lines;
+      node->hi = lines - nlo;
+      node->end_lo = lines - nlo;
+      node->end_hi = lines - nlo - nhi;
 
-      queue_insert (merge_queue, &node);
-      merge_loop (merge_queue, total_lines, tfp, temp_output);
+      /* This is a leaf NODE. Add it to the sort queue and exit. */
+      struct line *temp = lines - total_lines;
+      if (1 < nhi)
+        {
+          struct sort_unit *su = xmalloc (sizeof *su);
+          su->lines = lines - nlo;
+          su->nlines = nhi;
+          su->temp = temp - nlo / 2;
+          su->to_temp = false;
+          su->node = node;
+
+          ia_queue_push (sort_queue, su, 0);
+        }
+      if (1 < nlo)
+        {
+          struct sort_unit *su = xmalloc (sizeof *su);
+          su->lines = lines;
+          su->nlines = nlo;
+          su->temp = temp;
+          su->to_temp = false;
+          su->node = node;
+
+          ia_queue_push (sort_queue, su, 0);
+        }
+    }
+
+  /* If this is the top level then start the actual sorting */
+  if (MERGE_END == parent->level)
+    {
+      state->total_lines = total_lines;
+      state->merge_queue = merge_queue;
+      state->tfp = tfp;
+      state->temp_output = (char *) temp_output;
+
+      /* Start up some threads to work on this sort */
+      sortlines_add_threads (state, use_threads);
+
+      /* Wait for all of the threads to finish before returning */
+      sortlines_join_threads (state);
     }
 }
 
@@ -3398,7 +3525,8 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
 
 static void
 do_sort (char * const *files, size_t nfiles, char const *output_file,
-         unsigned long int nthreads, const bool should_output)
+         unsigned long int use_threads, unsigned long int nthreads,
+         const bool should_output, struct sort_state *state)
 {
   struct buffer buf;
   size_t ntemps = 0;
@@ -3439,7 +3567,6 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
       while (fillbuf (&buf, fp, file))
         {
           struct line *line;
-          struct line *linebase;
 
           if (buf.eof && nfiles
               && (bytes_per_line + 1
@@ -3453,9 +3580,6 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
             }
 
           line = buffer_linelim (&buf);
-          linebase = line - buf.nlines;
-          if (1 < buf.nlines)
-            sortlines (line, buf.nlines, linebase);
           if (should_output && buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
@@ -3473,14 +3597,13 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
               struct merge_node_queue merge_queue;
               queue_init (&merge_queue, 2 * nthreads);
 
-              pthread_spinlock_t lock;
-              pthread_spin_init (&lock, PTHREAD_PROCESS_PRIVATE);
               struct merge_node node =
                 {NULL, NULL, NULL, NULL, NULL, buf.nlines,
-                 buf.nlines, MERGE_END, NULL, false, &lock};
+                 buf.nlines, MERGE_END, NULL, false};
+              pthread_spin_init (&node.lock, PTHREAD_PROCESS_PRIVATE);
 
-              sortlines (line, line, nthreads, buf.nlines, &node, true,
-                         &merge_queue, tfp, temp_output);
+              sortlines (line, line, use_threads, nthreads, buf.nlines, &node,
+                         true, &merge_queue, state, tfp, temp_output);
               queue_destroy (&merge_queue);
             }
           else
@@ -3524,7 +3647,9 @@ struct sort_multidisk_thread_args
   size_t ndevs;
   size_t *nfiles;
   ssize_t *work_units;
+  struct sort_state *sort_states;
   size_t nthreads;
+  size_t max_threads;
   xpthread_mutex_t mutex;
 };
 
@@ -3542,6 +3667,8 @@ sort_multidisk_thread (void *data)
   size_t *nfiles = args->nfiles;
   ssize_t *work_units = args->work_units;
   size_t nthreads = args->nthreads;
+  size_t max_threads = args->max_threads;
+  struct sort_state *sort_states = args->sort_states;
   size_t cur_dev = 0;
 
   while (cur_dev < ndevs)
@@ -3549,6 +3676,7 @@ sort_multidisk_thread (void *data)
       char **files = NULL;
       char **single_file = NULL;
       ssize_t available_work_units = 1;
+      struct sort_state *state;
 
       // Find next available list of device files to sort
       xpthread_mutex_lock (&args->mutex);
@@ -3565,19 +3693,28 @@ sort_multidisk_thread (void *data)
       if (NULL == files)
         return NULL;
 
+      state = &sort_states[cur_dev];
+
       // Sort each file on the current device
       single_file = files + nfiles[cur_dev];
       while (single_file --> files)
         {
+          xpthread_mutex_lock (&args->mutex);
+
           // Check to see how many work units do_sort can use (if other threads
           // finished early they may have increased our maximum).
-          xpthread_mutex_lock (&args->mutex);
           available_work_units = MAX (1, work_units[cur_dev]);
+
+          // Tell other threads that they should not assign any more work
+          // units to this device file group if we are about to process the
+          // last file in this group
+          if (single_file - 1 == files)
+            work_units[cur_dev] = -1;
+
           xpthread_mutex_unlock (&args->mutex);
 
-          // TODO: import the parallel internal sort so that do_sort() can
-          // utilize more than one thread.
-          do_sort (single_file, 1, NULL, false);
+          do_sort (single_file, 1, NULL, available_work_units,
+                   max_threads, false, state);
         }
 
       // Free the device list here, no one else has a reference to it anymore
@@ -3586,7 +3723,7 @@ sort_multidisk_thread (void *data)
       // Distribute this threads work units among the remaining device groups.
       xpthread_mutex_lock (&args->mutex);
       nthreads = args->nthreads;
-      if (work_units[cur_dev] / nthreads)
+      if (available_work_units / nthreads)
         {
           size_t i, j;
           for (i = j = 0; i < nthreads; j++)
@@ -3595,26 +3732,25 @@ sort_multidisk_thread (void *data)
                 j = 0;
               if (work_units[j] < 0)
                 continue;
-              work_units[j] += work_units[cur_dev] / nthreads;
+              work_units[j] += available_work_units / nthreads;
+              sortlines_add_threads (&sort_states[j], available_work_units / nthreads);
               i++;
             }
         }
-      if (work_units[cur_dev] % nthreads)
+      if (available_work_units % nthreads)
         {
           size_t i, j;
-          for (i = j = 0; i < work_units[cur_dev] % nthreads; j++)
+          for (i = j = 0; i < available_work_units % nthreads; j++)
             {
               if (j == ndevs)
                 j = 0;
               if (work_units[j] < 0)
                 continue;
               work_units[j]++;
+              sortlines_add_threads (&sort_states[j], 1);
               i++;
             }
         }
-      // Tell other threads that they should not assign any more work units to
-      // this device file group
-      work_units[cur_dev] = -1;
       xpthread_mutex_unlock (&args->mutex);
     }
 
@@ -3708,7 +3844,10 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
                 unsigned long int nthreads)
 {
 #if HAVE_LIBPTHREAD != 1
-  do_sort (files, nfiles, output_file, true);
+  struct sort_state state;
+  sortlines_init (&state);
+  do_sort (files, nfiles, output_file, nthreads, nthreads, true, &state);
+  sortlines_close (&state);
 
   // Quiet unused function warnings when HAVE_LIBPTHREAD is not defined
   sort_multidisk_thread (NULL);
@@ -3716,8 +3855,13 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
   xpthread_error (0);
 #else
   // No point in spawning a new thread if just one input file
-  if (nfiles <= 1)
-    do_sort (files, nfiles, output_file, true);
+  if (nfiles <= 1 || nthreads <= 1)
+    {
+      struct sort_state state;
+      sortlines_init (&state);
+      do_sort (files, nfiles, output_file, nthreads, nthreads, true, &state);
+      sortlines_close (&state);
+    }
   else
     {
       char ***dev_files = xnmalloc (nfiles, sizeof *dev_files);
@@ -3732,7 +3876,11 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (dev_files);
           free (nfiles_on_dev);
 
-          do_sort (files, nfiles, output_file, true);
+          struct sort_state state;
+          sortlines_init (&state);
+          do_sort (files, nfiles, output_file, nthreads, nthreads, true,
+                   &state);
+          sortlines_close (&state);
         }
       else
         {
@@ -3741,7 +3889,11 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           xpthread_t *threads = xnmalloc (nthreads_to_use, sizeof *threads);
           unsigned long int tid = 0;
           ssize_t *work_units = xcalloc (ndevs, sizeof *work_units);
+          struct sort_state *sort_states = xnmalloc (ndevs, sizeof *sort_states);
           size_t global_sort_size = sort_size;
+
+          for (tid = 0; tid < ndevs; tid++)
+            sortlines_init (&sort_states[tid]);
 
           // Evenly distribute available thread work units to device file
           // groups. Only distribute to the first nthreads_to_use.
@@ -3759,7 +3911,9 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
             .ndevs = ndevs,
             .nfiles = nfiles_on_dev,
             .work_units = work_units,
-            .nthreads = nthreads_to_use};
+            .nthreads = nthreads_to_use,
+            .max_threads = nthreads,
+            .sort_states = sort_states};
           xpthread_mutex_init (&args.mutex, NULL);
 
           // Spawn threads to sort the device lists. The threads will keep
@@ -4016,7 +4170,6 @@ main (int argc, char **argv)
   bool mergeonly = false;
   char *random_source = NULL;
   bool need_random = false;
-  unsigned long int nthreads = 0;
   size_t nfiles = 0;
   unsigned long int nthreads = 0;
   bool posixly_correct = (getenv ("POSIXLY_CORRECT") != NULL);
