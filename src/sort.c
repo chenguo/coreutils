@@ -2592,31 +2592,27 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   FILE ***thread_fps = malloc(nthreads*sizeof(**fps));
   FILE **thread_ofp = malloc(nfiles*sizeof(FILE*));
   struct merge_args *args = malloc(nthreads*sizeof(struct merge_args));
-  //fprintf(stderr, "\n\n** CALL TO MERGEFPS ** %d\n", (int)nthreads);
-  //debug_print_args(files, ntemps, nfiles, ofp, output_file, fps);
+  // fprintf(stderr, "\n\n** CALL TO MERGEFPS ** %d\n", (int)nthreads);
+  // debug_print_args(files, ntemps, nfiles, ofp, output_file, fps);
   size_t nTemps_used = 0;
   size_t nFiles_used = 0;
   size_t nNewTemps_used = 0;
   size_t nNewTemps_created = 0;
-  size_t ti = 0; //Merge index to manage temporary output files
+  size_t ti = 0; // Merge index to manage temporary output files
   size_t i;
   size_t j;
   
-  //Dont bother multithreading a merge that requires only one thread
-  if(nfiles <= 3)
-  {
-    //fprintf(stderr, "** nfiles <= 3, passing to original mergefps!\n", (int)nthreads);
-    mergefps_orig(files, ntemps, nfiles, ofp, output_file, fps);
-    return;
-  }
+  // Dont bother multithreading with one or no input files
+  if(nfiles <= 1)
+    nthreads = 1;
 
-  //Main merge thread spawning loop. Each iteration is one level of 2-way merges
+  // Main merge thread spawning loop. Each iteration is one level of 2-way merges
   while (nthreads >= 1)
    {
-      //fprintf(stderr, "NEW LOOP: nthreads =%d\n", (int)nthreads);
+      // fprintf(stderr, "NEW LOOP: nthreads =%d\n", (int)nthreads);
       pthread_t *pthreads = malloc(nthreads * sizeof(pthread_t));
 
-      //Spawn each thread for this merge level
+      // Spawn each thread for this merge level
       for(i = 0; i < nthreads; ++i)
         {
           size_t numFilesToMerge = 2 + ((i == 0) ? oddthread : 0);
@@ -2626,20 +2622,6 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           int thread_ntemp=0;
           int thread_nfiles=0;
 
-<<<<<<< HEAD
-
-          // Create this thread's TEMP output file
-          char *temp = create_temp (&thread_ofp[ti], &thread_output_file[ti].pid);
-           if (temp == NULL)
-                {
-                  nthreads=i;
-                  //fprintf(stderr, "*** create_temp resulted in NULL!\n");
-      	          break;
-                }
-              //fprintf(stderr, "temp%s\n", temp);
-              thread_output_file[ti].name = temp;
-              nNewTemps++;
-
           // Assigns the files to be merged from the original TEMP files
           while(nTemps_used < ntemps && thread_nfiles < numFilesToMerge)
             {
@@ -2647,14 +2629,14 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               thread_nfiles++;
               nTemps_used++;
               thread_ntemp++;
-              //fprintf(stderr, "set %d\n", (int)thread_nfiles);
+              // fprintf(stderr, "set %d\n", (int)thread_nfiles);
             }
           // Assigns the files to be merged from intermediate TEMP files
           while(nNewTemps_used < nNewTemps && thread_nfiles < numFilesToMerge)
             {
               thread_files[thread_nfiles] = thread_output_file[nNewTemps_used];
               nNewTemps_used++;
-              //fprintf(stderr, "newset %d\n", (int)thread_nfiles);
+              // fprintf(stderr, "newset %d\n", (int)thread_nfiles);
               thread_nfiles++;
             }
           // Assigns the files to be merged from input files (this only happens when -m is used)
@@ -2671,14 +2653,16 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           if (temp == NULL)
             {
               nthreads=i;
-              //fprintf(stderr, "*** create_temp resulted in NULL!\n");
+              // fprintf(stderr, "*** create_temp resulted in NULL!\n");
       	      break;
             }
+            // fprintf(stderr, "temp%s\n", temp);
+            thread_output_file[ti].name = temp;
+            nNewTemps_created++;
 
-          //fprintf(stderr, "Thread #: %d \n", (int)i);
+          // fprintf(stderr, "Thread #: %d \n", (int)i);
 
-          //merge files have been set
-          //Validate mi vs i
+          // merge files have been set
           open_input_files(thread_files, thread_nfiles, &(thread_fps[i])); 
 
           args[i].files = thread_files;
@@ -2686,8 +2670,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           args[i].nfiles = thread_nfiles;
           if(nthreads == 1)
             {
-              //fprintf(stderr, "Last one!!! Setting output!");
-              //fprintf(stderr, "%s\n", output_file);
+              // fprintf(stderr, "Last one!!! Setting output!");
+              // fprintf(stderr, "%s\n", output_file);
               args[i].ofp = ofp;
               args[i].output_file = output_file;
             }
@@ -2697,39 +2681,41 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               args[i].output_file = thread_output_file[ti].name;
             }
           args[i].fps = thread_fps[i];
-/*
+
+          /*
           for (j = 0; j < thread_nfiles; ++j)
             fprintf(stderr, "\tthread_files: %s\n", thread_files[j]);
 
-          fprintf(stderr,"\toutput filename:  %s\n", thread_output_file[ti].name);
-*/
+          fprintf(stderr,"\toutput filename:  %s\n", args[i].output_file);
+          */
+
           int ret_val=pthread_create(&pthreads[i], NULL, mergefps_thread, (void*)&args[i]);
           xpthread_error(ret_val, "error while creating a thread");
           ti++;
 
-          //free(thread_files);
+          // free(thread_files);
         }
 
-      //Wait for all the threads to finish merging before starting the next level of merge
+      // Wait for all the threads to finish merging before starting the next level of merge
 
-      //fprintf(stderr, "Joining threads...\n");
+      // fprintf(stderr, "Joining threads...\n");
       for (i = 0; i < nthreads; i++)
         {
-          //fprintf(stderr, "\tjoining %d\n", (int)i);
+          // fprintf(stderr, "\tjoining %d\n", (int)i);
           int ret_val=pthread_join(pthreads[i], NULL);
-          //fprintf(stderr, "\tjoined %d\n", (int)i);
+          // fprintf(stderr, "\tjoined %d\n", (int)i);
           xpthread_error(ret_val, "error while joining a thread");
         }
-      //fprintf(stderr, "All threads finished level\n");
+      // fprintf(stderr, "All threads finished level\n");
 
-      free(pthreads);
+      //free(pthreads);
       nNewTemps += nNewTemps_created;
       oddthread = nthreads%2;
       nthreads /= 2;
     }
-  //free(thread_fps);
-  //free(thread_output_file);
-  //free(thread_ofp);
+  // free(thread_fps);
+  // free(thread_output_file);
+  // free(thread_ofp);
 }
 
 
