@@ -2588,10 +2588,11 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   size_t nNewTemps = 0;
   
 
-  struct sortfile *thread_output_file = malloc(nfiles*sizeof(struct sortfile));
-  FILE ***thread_fps = malloc(nthreads*sizeof(**fps));
-  FILE **thread_ofp = malloc(nfiles*sizeof(FILE*));
-  struct merge_args *args = malloc(nthreads*sizeof(struct merge_args));
+  struct sortfile *thread_output_file = xnmalloc(nfiles, sizeof(struct sortfile));
+  FILE ***thread_fps = xnmalloc(nthreads, sizeof(**fps));
+  FILE **thread_ofp = xnmalloc(nfiles, sizeof(FILE*));
+  struct merge_args *args = xnmalloc(nthreads, sizeof(struct merge_args));
+  pthread_t **pthread_arrays = xnmalloc(nfiles, sizeof(pthread_t*));
   // fprintf(stderr, "\n\n** CALL TO MERGEFPS ** %d\n", (int)nthreads);
   // debug_print_args(files, ntemps, nfiles, ofp, output_file, fps);
   size_t nTemps_used = 0;
@@ -2601,6 +2602,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   size_t ti = 0; // Merge index to manage temporary output files
   size_t i;
   size_t j;
+  size_t p = 0;
   
   // Dont bother multithreading with one or no input files
   if(nfiles <= 1)
@@ -2611,6 +2613,8 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
    {
       // fprintf(stderr, "NEW LOOP: nthreads =%d\n", (int)nthreads);
       pthread_t *pthreads = malloc(nthreads * sizeof(pthread_t));
+      pthread_arrays[p] = pthreads;
+      p++;
 
       // Spawn each thread for this merge level
       for(i = 0; i < nthreads; ++i)
@@ -2713,6 +2717,12 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
       oddthread = nthreads%2;
       nthreads /= 2;
     }
+
+    for(i = 0; i < p; ++i)
+      {
+        free(pthread_arrays[i]);
+      }
+
   // free(thread_fps);
   // free(thread_output_file);
   // free(thread_ofp);
