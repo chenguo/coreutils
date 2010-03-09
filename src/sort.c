@@ -3316,7 +3316,6 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
     {
       char ***dev_files = xnmalloc (nfiles, sizeof *dev_files);
       size_t *nfiles_on_dev = xnmalloc (nfiles, sizeof *nfiles_on_dev);
-      size_t *dev_size = xnmalloc (nfiles, sizeof *dev_size);
       size_t ndevs = group_files_by_device (files, nfiles, dev_files,
                                             nfiles_on_dev);
 
@@ -3326,7 +3325,6 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (dev_files[0]);
           free (dev_files);
           free (nfiles_on_dev);
-          free (dev_size);
 
           do_sort (files, nfiles, output_file, true);
         }
@@ -3380,7 +3378,6 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           xpthread_mutex_destroy (&args.mutex);
           free (dev_files);
           free (nfiles_on_dev);
-          free (dev_size);
 
           // Merge all the temp files created by the threads
           {
