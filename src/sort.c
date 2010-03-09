@@ -3100,6 +3100,8 @@ struct sort_multidisk_thread_args
   char ***dev_files;
   size_t ndevs;
   size_t *nfiles;
+  ssize_t *work_units;
+  size_t nthreads;
   xpthread_mutex_t mutex;
 };
 
@@ -3115,12 +3117,17 @@ sort_multidisk_thread (void *data)
   char ***dev_files = args->dev_files;
   size_t ndevs = args->ndevs;
   size_t *nfiles = args->nfiles;
+  ssize_t *work_units = args->work_units;
+  size_t nthreads = args->nthreads;
   size_t cur_dev = 0;
   int ret_val;
 
   while (cur_dev < ndevs)
     {
       char **files = NULL;
+      char **single_file = NULL;
+      ssize_t available_work_units = 1;
+      ssize_t dist_units;
 
       // Find next available list of device files to sort
       ret_val = pthread_mutex_lock (&args->mutex);
@@ -3139,10 +3146,54 @@ sort_multidisk_thread (void *data)
       if (NULL == files)
         return NULL;
 
-      do_sort (files, nfiles[cur_dev], NULL, false);
+      // Sort each file on the current device
+      single_file = files + nfiles[cur_dev];
+      while (single_file --> files)
+        {
+          // Check to see how many work units do_sort can use (if other threads
+          // finished early they may have increased our maximum).
+          ret_val = pthread_mutex_lock (&args->mutex);
+          xpthread_error (ret_val, "error while locking mutex");
+
+          available_work_units = MAX (1, work_units[cur_dev]);
+
+          ret_val = pthread_mutex_unlock (&args->mutex);
+          xpthread_error (ret_val, "error while unlocking mutex");
+
+          do_sort (single_file, 1, NULL, false);
+        }
 
       // Free the device list here, no one else has a reference to it anymore
       free (files);
+
+      // Distribute this threads work units among the remaining devices
+      // remaining devices
+      ret_val = pthread_mutex_lock (&args->mutex);
+      xpthread_error (ret_val, "error while locking mutex");
+
+      dist_units = work_units[cur_dev];
+      work_units[cur_dev] = -1;
+
+      while (0 < dist_units)
+        {
+          // Only distribute work units to NTHREADS other devices. The work
+          // units wont be used if there are no threads available to use them.
+          size_t ntarget_threads = nthreads;
+          size_t i;
+          for (i = 0; i < ndevs && 0 < dist_units && ntarget_threads; i++)
+            {
+              // Skip all devices that no longer have any files to sort
+              if (work_units[i] < 0)
+                continue;
+
+              work_units[i]++;
+              dist_units--;
+              ntarget_threads--;
+            }
+        }
+
+      ret_val = pthread_mutex_unlock (&args->mutex);
+      xpthread_error (ret_val, "error while unlocking mutex");
     }
 #endif
   return NULL;
@@ -3170,8 +3221,8 @@ device_cmp (struct stat a, struct stat b)
    allocated for each of the device groups in DEV_FILES. */
 
 static size_t
-group_files_by_device (char * const *files, size_t nfiles,
-                       char ***dev_files, size_t *ndev_files)
+group_files_by_device (char * const *files, size_t nfiles, char ***dev_files,
+                       size_t *ndev_files, size_t *dev_size)
 {
   struct stat *dev_map = xnmalloc (nfiles, sizeof *dev_map);
   size_t ndevs = 0;
@@ -3202,12 +3253,14 @@ group_files_by_device (char * const *files, size_t nfiles,
           // This is a little wasteful, but avoids the need to realloc
           dev_files[dev_index] = xnmalloc (nfiles, sizeof **dev_files);
           ndev_files[dev_index] = 0;
+          dev_size[dev_index] = 0;
           dev_map[dev_index] = st;
           ndevs++;
         }
 
       // Add the filename to the device's file list
       dev_files[dev_index][ndev_files[dev_index]++] = *fnp;
+      dev_size[dev_index] += dev_map[dev_index].st_size;
     }
 
   free (dev_map);
@@ -3244,8 +3297,9 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
     {
       char ***dev_files = xnmalloc (nfiles, sizeof *dev_files);
       size_t *nfiles_on_dev = xnmalloc (nfiles, sizeof *nfiles_on_dev);
+      size_t *dev_size = xnmalloc (nfiles, sizeof *dev_size);
       size_t ndevs = group_files_by_device (files, nfiles, dev_files,
-                                            nfiles_on_dev);
+                                            nfiles_on_dev, dev_size);
 
       // Only one device, do no need to create any threads
       if (ndevs <= 1)
@@ -3253,6 +3307,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (dev_files[0]);
           free (dev_files);
           free (nfiles_on_dev);
+          free (dev_size);
 
           do_sort (files, nfiles, output_file, true);
         }
@@ -3263,7 +3318,19 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           pthread_t *threads = xnmalloc (nthreads_to_use, sizeof *threads);
           unsigned long int tid = 0;
           int ret_val;
+          ssize_t *work_units = xnmalloc (ndevs, sizeof *work_units);
           size_t global_sort_size = sort_size;
+
+          // MAX
+          size_t max = 0;
+          size_t min = INT_MAX;
+          for (i = 0; i < ndevs; i++) {
+            max = dev_size[i] <= max ? max : dev_size[i];
+            min = dev_size[i] < min ? dev_size[i] : min;
+          }
+
+          size_t factor = max / min;
+
 
           // Reduce global sort size by a factor of nthreads_to_use so that the
           // global memory usage does not exceed the bounds
@@ -3272,7 +3339,9 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           struct sort_multidisk_thread_args args = {
             .dev_files = dev_files,
             .ndevs = ndevs,
-            .nfiles = nfiles_on_dev};
+            .nfiles = nfiles_on_dev,
+            .work_units = work_units,
+            .nthreads = nthreads_to_use};
 
           ret_val = pthread_mutex_init (&args.mutex, NULL);
           xpthread_error (ret_val, "error while init'n mutex");
@@ -3305,6 +3374,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           // Free all the memory allocated for device information
           free (dev_files);
           free (nfiles_on_dev);
+          free (dev_size);
 
           ret_val = pthread_mutex_destroy (&args.mutex);
           xpthread_error (ret_val, "error while destroying mutex");
@@ -4077,16 +4147,7 @@ main (int argc, char **argv)
   else
     {
       if (!nthreads)
-        {
-          /* The default NTHREADS is 2 ** floor (log2 (number of processors)).
-             If comparisons do not vary in cost and threads are
-             scheduled evenly, with the current algorithm there is no
-             performance advantage to using a number of threads that
-             is not a power of 2.  */
-          unsigned long int np2 = num_processors (NPROC_CURRENT) / 2;
-          for (nthreads = 1; nthreads <= np2; nthreads *= 2)
-            continue;
-        }
+        nthreads = num_processors (NPROC_CURRENT_OVERRIDABLE);
 
       sort (files, nfiles, outfile, nthreads);
     }
