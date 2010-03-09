@@ -2944,17 +2944,17 @@ queue_pop (struct merge_node_queue *const restrict queue)
    thus is only appropriate for internal sort. */
 
 static inline void
-write_unique (struct line *const restrict write, FILE *tfp,
+write_unique (struct line *const restrict data, FILE *tfp,
               const char *temp_output)
 {
   static struct line *saved = NULL;
 
   if (!unique)
-    write_bytes (write->text, write->length, tfp, temp_output);
-  else if (!saved || compare (write, saved))
+    write_bytes (data->text, data->length, tfp, temp_output);
+  else if (!saved || compare (data, saved))
     {
-      saved = write;
-      write_bytes (write->text, write->length, tfp, temp_output);
+      saved = data;
+      write_bytes (data->text, data->length, tfp, temp_output);
     }
 }
 
@@ -3022,7 +3022,7 @@ merge_node (struct merge_node *const restrict node, const size_t total_lines,
 
 /* Insert NODE into QUEUE if it passes insertion checks. */
 
-static inline bool
+static inline void
 check_insert (struct merge_node *node,
               struct merge_node_queue *const restrict queue)
 {
