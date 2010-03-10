@@ -2799,8 +2799,8 @@ mergelines (struct line *restrict t, size_t nlines,
    D. A. Bell, Comp J. 1 (1958), 75.  */
 
 static void
-sequential_sort (struct line *restrict lines, size_t nlines,
-                 struct line *restrict temp, bool to_temp)
+sequential_sortlines (struct line *restrict lines, size_t nlines,
+                      struct line *restrict temp, bool to_temp)
 {
   if (nlines == 2)
     {
@@ -2827,9 +2827,9 @@ sequential_sort (struct line *restrict lines, size_t nlines,
       struct line *lo = lines;
       struct line *hi = lines - nlo;
 
-      sequential_sort (hi, nhi, temp - (to_temp ? nlo : 0), to_temp);
+      sequential_sortlines (hi, nhi, temp - (to_temp ? nlo : 0), to_temp);
       if (1 < nlo)
-        sequential_sort (lo, nlo, temp, !to_temp);
+        sequential_sortlines (lo, nlo, temp, !to_temp);
       else if (!to_temp)
         temp[-1] = lo[-1];
 
@@ -3179,9 +3179,9 @@ sortlines (struct line *restrict lines, struct line *restrict dest,
          Sort with 1 thread. */
       struct line *temp = lines - total_lines;
       if (1 < nhi)
-        sequential_sort (lines - nlo, nhi, temp - nlo / 2, false);
+        sequential_sortlines (lines - nlo, nhi, temp - nlo / 2, false);
       if (1 < nlo)
-        sequential_sort (lines, nlo, temp, false);
+        sequential_sortlines (lines, nlo, temp, false);
 
       /* Update merge NODE. No need to lock yet. */
       node.lo = lines;
@@ -3455,7 +3455,7 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
           line = buffer_linelim (&buf);
           linebase = line - buf.nlines;
           if (1 < buf.nlines)
-            sortlines (line, buf.nlines, linebase);
+            sequential_sortlines (line, buf.nlines, linebase, false);
           if (should_output && buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
@@ -3577,7 +3577,7 @@ sort_multidisk_thread (void *data)
 
           // TODO: import the parallel internal sort so that do_sort() can
           // utilize more than one thread.
-          do_sort (single_file, 1, NULL, false);
+          do_sort (single_file, 1, NULL, available_work_units, false);
         }
 
       // Free the device list here, no one else has a reference to it anymore
@@ -3717,7 +3717,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
 #else
   // No point in spawning a new thread if just one input file
   if (nfiles <= 1)
-    do_sort (files, nfiles, output_file, true);
+    do_sort (files, nfiles, output_file, nthreads, true);
   else
     {
       char ***dev_files = xnmalloc (nfiles, sizeof *dev_files);
@@ -3732,7 +3732,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
           free (dev_files);
           free (nfiles_on_dev);
 
-          do_sort (files, nfiles, output_file, true);
+          do_sort (files, nfiles, output_file, nthreads, true);
         }
       else
         {
@@ -4016,7 +4016,6 @@ main (int argc, char **argv)
   bool mergeonly = false;
   char *random_source = NULL;
   bool need_random = false;
-  unsigned long int nthreads = 0;
   size_t nfiles = 0;
   unsigned long int nthreads = 0;
   bool posixly_correct = (getenv ("POSIXLY_CORRECT") != NULL);
