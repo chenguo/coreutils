@@ -2583,18 +2583,14 @@ static void
 mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           FILE *ofp, char const *output_file, FILE **fps)
 {
- 
+/*  static int first_time=0;
+  if(first_time==0 && nfiles==1)
+    mergefps_orig(files, ntemps, nfiles, ofp, output_file, fps);
+  first_time=1; */
  // fprintf(stderr, "called\n");
   size_t i;
   size_t j;
   size_t p = 0;
-  if(nfiles > 1)
-  {
-    for(i=0; i<nfiles; i++)
-      {
-        xfclose(fps[i],files[i].name);
-      }
-  }   
   size_t oddthread = nfiles%2;
   size_t nthreads = nfiles/2;
   size_t nNewTemps = 0;
@@ -2616,6 +2612,13 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
   // Dont bother multithreading with one or no input files
   if(nfiles <= 1)
     nthreads = 1;
+  if(nthreads > 1)
+  {
+    for(i=0; i<nfiles; i++)
+      {
+        xfclose(fps[i],files[i].name);
+      }
+  }  
 
   // Main merge thread spawning loop. Each iteration is one level of 2-way merges
   while (nthreads >= 1)
@@ -2663,13 +2666,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 
           // Create this thread's TEMP output file
           char *temp = NULL;
-          temp = maybe_create_temp (&thread_ofp[ti], &thread_output_file[ti].pid, true);
-          if (!temp)
-            {
-              nthreads=i-1;
-              // fprintf(stderr, "*** create_temp resulted in NULL!\n");
-      	      break;
-            }
+          temp = create_temp (&thread_ofp[ti], &thread_output_file[ti].pid);
             // fprintf(stderr, "temp%s\n", temp);
             thread_output_file[ti].name = temp;
             nNewTemps_created++;
@@ -2731,14 +2728,16 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
    free(thread_fps);
    free(thread_output_file);
    free(thread_ofp);
-   /*if(nfiles > 1)
-     free(args);*/
-
-    for(i = 0; i < p; ++i)
+   if(nfiles > 1)
+     free(args);
+   if(nfiles > 1)
+   {
+      for(i = 0; i < p; ++i)
       {
-        free(pthread_arrays[i]);
+       free(pthread_arrays[i]);
       }
-  free(pthread_arrays);
+  }
+  //free(pthread_arrays);
   // free(thread_fps);
   // free(thread_output_file);
   // free(thread_ofp);
