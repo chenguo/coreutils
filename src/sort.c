@@ -2589,7 +2589,7 @@ static void
 mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           FILE *ofp, char const *output_file, FILE **fps)
 {
- if (ntemps + nfiles <= 1)
+ if (ntemps + nfiles <= 3)
 {
  mergefps_orig(files, ntemps, nfiles, ofp, output_file, fps);
  return;
@@ -2741,7 +2741,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           // fprintf(stderr, "\tjoined %d\n", (int)i);
           xpthread_error(ret_val, "error while joining a thread");
         }
-       fprintf(stderr, "All threads finished level\n");
+   //    fprintf(stderr, "All threads finished level\n");
   //    abort();
       //free(pthreads);
       nNewTemps += nNewTemps_created;
@@ -2784,7 +2784,10 @@ mergefiles (struct sortfile *files, size_t ntemps, size_t nfiles,
   size_t nopened = open_input_files (files, nfiles, &fps);
   if (nopened < nfiles && nopened < 2)
     die (_("open failed"), files[nopened].name);
-  mergefps (files, ntemps, nopened, ofp, output_file, fps);
+  if(nfiles<=3)
+    mergefps_orig (files, ntemps, nopened, ofp, output_file, fps);
+  else
+    mergefps (files, ntemps, nopened, ofp, output_file, fps);
   return nopened;
 }
 
@@ -3059,7 +3062,10 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
           FILE *ofp = stream_open (output_file, "w");
           if (ofp)
             {
-              mergefps (files, ntemps, nfiles, ofp, output_file, fps);
+              if(nfiles<=3)
+                mergefps_orig (files, ntemps, nfiles, ofp, output_file, fps);
+              else
+                mergefps (files, ntemps, nfiles, ofp, output_file, fps);
               break;
             }
           if (errno != EMFILE || nopened <= 2)
@@ -3085,7 +3091,10 @@ merge (struct sortfile *files, size_t ntemps, size_t nfiles,
       while (!temp);
 
       /* Merge into the newly allocated temporary.  */
-      mergefps (&files[0], MIN (ntemps, nopened), nopened, tfp, temp, fps);
+      if(nfiles <=3)
+        mergefps_orig (&files[0], MIN (ntemps, nopened), nopened, tfp, temp, fps);
+      else
+        mergefps (&files[0], MIN (ntemps, nopened), nopened, tfp, temp, fps);
       ntemps -= MIN (ntemps, nopened);
       files[0].name = temp;
       files[0].pid = pid;
