@@ -3439,7 +3439,6 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
       while (fillbuf (&buf, fp, file))
         {
           struct line *line;
-          struct line *linebase;
 
           if (buf.eof && nfiles
               && (bytes_per_line + 1
@@ -3453,9 +3452,6 @@ do_sort (char * const *files, size_t nfiles, char const *output_file,
             }
 
           line = buffer_linelim (&buf);
-          linebase = line - buf.nlines;
-          if (1 < buf.nlines)
-            sequential_sortlines (line, buf.nlines, linebase, false);
           if (should_output && buf.eof && !nfiles && !ntemps && !buf.left)
             {
               xfclose (fp, file);
@@ -3708,7 +3704,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
                 unsigned long int nthreads)
 {
 #if HAVE_LIBPTHREAD != 1
-  do_sort (files, nfiles, output_file, true);
+  do_sort (files, nfiles, output_file, nthreads, true);
 
   // Quiet unused function warnings when HAVE_LIBPTHREAD is not defined
   sort_multidisk_thread (NULL);
