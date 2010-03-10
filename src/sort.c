@@ -2556,8 +2556,6 @@ static void
 {
   struct merge_args* args = (struct merge_args*)data;
   mergefps_orig(args->files, args->ntemps, args->nfiles, args->ofp, args->output_file, args->fps);
-  int i;
-  fprintf(stderr, "ntemps %d\n", args->ntemps);
  /* for (i=0; i<args->ntemps;i++)
   {
     fprintf(stderr, "i %d\n", i);
@@ -2591,11 +2589,13 @@ static void
 mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           FILE *ofp, char const *output_file, FILE **fps)
 {
-/*  static int first_time=0;
-  if(first_time==0 && nfiles==1)
-    mergefps_orig(files, ntemps, nfiles, ofp, output_file, fps);
-  first_time=1; */
- // fprintf(stderr, "called\n");
+ if (ntemps + nfiles <= 1)
+{
+ mergefps_orig(files, ntemps, nfiles, ofp, output_file, fps);
+ return;
+}
+
+  // fprintf(stderr, "called\n");
   size_t i;
   size_t j;
   size_t p = 0;
@@ -2633,7 +2633,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
    {
       int thread_nfiles_array[nthreads];
       // fprintf(stderr, "NEW LOOP: nthreads =%d\n", (int)nthreads);
-      pthread_t *pthreads = malloc(nthreads * sizeof(pthread_t));
+      pthread_t *pthreads = xnmalloc(nthreads, sizeof(pthread_t));
       pthread_arrays[p] = pthreads;
       p++;
 
@@ -2643,7 +2643,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           size_t numFilesToMerge = 2 + ((i == 0) ? oddthread : 0);
           if(numFilesToMerge > nfiles)
             numFilesToMerge = nfiles;
-          struct sortfile *thread_files = malloc(numFilesToMerge*sizeof(struct sortfile));
+          struct sortfile *thread_files = xnmalloc(numFilesToMerge,sizeof(struct sortfile));
           int thread_ntemp=0;
           int thread_nfiles=0;
 
@@ -2671,7 +2671,7 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
               thread_nfiles++;
               nFiles_used++;
             }
-
+          thread_nfiles_array[i]=thread_nfiles;
           // Create this thread's TEMP output file
           char *temp = NULL;
           temp = create_temp (&thread_ofp[ti], &thread_output_file[ti].pid);
@@ -2683,9 +2683,18 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
 
           // merge files have been set
            j=open_input_files(thread_files, thread_nfiles, &(thread_fps[i])); 
-           if(j!=thread_nfiles)
+         
+
+        
+          //out of open file handles.  Clear up temp files and abort with error.
+          if(j!=thread_nfiles)
           {
-            fprintf(stderr, "error %d %s\n", j, strerror(errno));
+            int k;
+            int m;
+            for(k=0; k<i; k++)
+              for(m=0; m<thread_nfiles_array[i]; m++)
+                zaptemp(thread_files[m].name);
+            fprintf(stderr, "%s\n", strerror(errno));
             abort();
           }
            thread_nfiles_array[i]=thread_nfiles;
