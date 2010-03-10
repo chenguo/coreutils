@@ -1072,11 +1072,11 @@ add_temp_dir (char const *dir)
 }
 
 /* Remove NAME from the list of temporary files.  */
-
+pthread_mutex_t zap_lock;
 static void
 zaptemp (const char *name)
 {
-  return;
+  pthread_mutex_lock (&zap_lock);
   struct tempnode *volatile *pnode;
   struct tempnode *node;
   struct tempnode *next;
@@ -1100,6 +1100,7 @@ zaptemp (const char *name)
   if (! next)
     temptail = pnode;
   free (node);
+  pthread_mutex_unlock(&zap_lock);
 }
 
 #if HAVE_NL_LANGINFO
@@ -2555,6 +2556,13 @@ static void
 {
   struct merge_args* args = (struct merge_args*)data;
   mergefps_orig(args->files, args->ntemps, args->nfiles, args->ofp, args->output_file, args->fps);
+  int i;
+  fprintf(stderr, "ntemps %d\n", args->ntemps);
+ /* for (i=0; i<args->ntemps;i++)
+  {
+    fprintf(stderr, "i %d\n", i);
+    zaptemp(args->files[i].name);
+  }a*/
   pthread_exit(NULL);
 }
 
@@ -2674,7 +2682,12 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           // fprintf(stderr, "Thread #: %d \n", (int)i);
 
           // merge files have been set
-           open_input_files(thread_files, thread_nfiles, &(thread_fps[i])); 
+           j=open_input_files(thread_files, thread_nfiles, &(thread_fps[i])); 
+           if(j!=thread_nfiles)
+          {
+            fprintf(stderr, "error %d %s\n", j, strerror(errno));
+            abort();
+          }
            thread_nfiles_array[i]=thread_nfiles;
        //    fprintf(stderr, "thread_nfiles %d\n", thread_nfiles);
 
@@ -2719,19 +2732,19 @@ mergefps (struct sortfile *files, size_t ntemps, size_t nfiles,
           // fprintf(stderr, "\tjoined %d\n", (int)i);
           xpthread_error(ret_val, "error while joining a thread");
         }
-      // fprintf(stderr, "All threads finished level\n");
+       fprintf(stderr, "All threads finished level\n");
+  //    abort();
       //free(pthreads);
       nNewTemps += nNewTemps_created;
       oddthread = nthreads%2;
       nthreads /= 2;
     }
-   free(thread_fps);
+  // free(thread_fps);
    free(thread_output_file);
    free(thread_ofp);
    if(nfiles > 1)
-     free(args);
-   if(nfiles > 1)
    {
+      free(args);
       for(i = 0; i < p; ++i)
       {
        free(pthread_arrays[i]);
@@ -3385,6 +3398,8 @@ main (int argc, char **argv)
   char *files_from = NULL;
   struct Tokens tok;
   char const *outfile = NULL;
+  pthread_mutex_init (&zap_lock, NULL);
+
 
   initialize_main (&argc, &argv);
   set_program_name (argv[0]);
