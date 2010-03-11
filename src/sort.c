@@ -3565,14 +3565,20 @@ sort_multidisk_thread (void *data)
       single_file = files + nfiles[cur_dev];
       while (single_file --> files)
         {
+          xpthread_mutex_lock (&args->mutex);
+
           // Check to see how many work units do_sort can use (if other threads
           // finished early they may have increased our maximum).
-          xpthread_mutex_lock (&args->mutex);
           available_work_units = MAX (1, work_units[cur_dev]);
+
+          // Tell other threads that they should not assign any more work
+          // units to this device file group if we are about to process the
+          // last file in this group
+          if (single_file - 1 == files)
+            work_units[cur_dev] = -1;
+
           xpthread_mutex_unlock (&args->mutex);
 
-          // TODO: import the parallel internal sort so that do_sort() can
-          // utilize more than one thread.
           do_sort (single_file, 1, NULL, available_work_units, false);
         }
 
@@ -3582,7 +3588,7 @@ sort_multidisk_thread (void *data)
       // Distribute this threads work units among the remaining device groups.
       xpthread_mutex_lock (&args->mutex);
       nthreads = args->nthreads;
-      if (work_units[cur_dev] / nthreads)
+      if (available_work_units / nthreads)
         {
           size_t i, j;
           for (i = j = 0; i < nthreads; j++)
@@ -3591,14 +3597,14 @@ sort_multidisk_thread (void *data)
                 j = 0;
               if (work_units[j] < 0)
                 continue;
-              work_units[j] += work_units[cur_dev] / nthreads;
+              work_units[j] += available_work_units / nthreads;
               i++;
             }
         }
-      if (work_units[cur_dev] % nthreads)
+      if (available_work_units % nthreads)
         {
           size_t i, j;
-          for (i = j = 0; i < work_units[cur_dev] % nthreads; j++)
+          for (i = j = 0; i < available_work_units % nthreads; j++)
             {
               if (j == ndevs)
                 j = 0;
@@ -3608,9 +3614,6 @@ sort_multidisk_thread (void *data)
               i++;
             }
         }
-      // Tell other threads that they should not assign any more work units to
-      // this device file group
-      work_units[cur_dev] = -1;
       xpthread_mutex_unlock (&args->mutex);
     }
 
@@ -3712,7 +3715,7 @@ sort_multidisk (char * const *files, size_t nfiles, char const *output_file,
   xpthread_error (0);
 #else
   // No point in spawning a new thread if just one input file
-  if (nfiles <= 1)
+  if (nfiles <= 1 || nthreads <= 1)
     do_sort (files, nfiles, output_file, nthreads, true);
   else
     {
